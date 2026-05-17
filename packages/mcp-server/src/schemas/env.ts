@@ -1,0 +1,31 @@
+import { z } from 'zod';
+
+// A container that easy-env created and currently owns.
+export const ContainerHandle = z.object({
+  containerId: z.string(),
+  image: z.string(),
+  internalPort: z.number().int().positive(),
+  hostPort: z.number().int().positive(),
+});
+
+export const ManagedEnvStatus = z.enum(['starting', 'ready', 'destroyed', 'error']);
+
+export const ManagedEnv = z.object({
+  envId: z.string(),
+  createdAt: z.string(),
+  status: ManagedEnvStatus,
+  configHash: z.string(),
+  mongo: ContainerHandle.optional(),
+  redis: ContainerHandle.optional(),
+  resolved: z.object({
+    mongoUrl: z.string().optional(),
+    redisUrl: z.string().optional(),
+    dbName: z.string(),
+  }),
+  labels: z.record(z.string(), z.string()),
+  error: z.string().optional(),
+});
+
+export type ContainerHandle = z.infer<typeof ContainerHandle>;
+export type ManagedEnv = z.infer<typeof ManagedEnv>;
+export type ManagedEnvStatus = z.infer<typeof ManagedEnvStatus>;

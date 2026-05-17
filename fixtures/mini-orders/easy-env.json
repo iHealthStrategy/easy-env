@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "backends": {
+    "mongo": {
+      "image": "mongo:6",
+      "url": "mongodb://localhost:27018",
+      "dbName": "mini"
+    },
+    "redis": {
+      "image": "redis:7-alpine",
+      "url": "redis://localhost:6380"
+    }
+  },
+  "app": {
+    "baseUrl": "http://localhost:4100"
+  },
+  "defaults": {
+    "capture": {
+      "mongo": {
+        "collections": ["orders", "outbox_events", "inventory", "audit_log"]
+      },
+      "redis": {
+        "keyPatterns": ["idemp:*", "lock:*"]
+      }
+    },
+    "noisePolicy": {
+      "ignoreTimestampFields": ["createdAt", "updatedAt", "processedAt", "publishedAt"],
+      "ignoreRedisTtlDrift": true
+    }
+  }
+}

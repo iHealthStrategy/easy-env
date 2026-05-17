@@ -1,0 +1,15 @@
+services:
+  mongo:
+    image: mongo:6
+    container_name: state-diff-poc-mongo
+    ports:
+      - "27018:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=mini
+    tmpfs:
+      - /data/db
+  redis:
+    image: redis:7-alpine
+    container_name: state-diff-poc-redis
+    ports:
+      - "6380:6379"

@@ -1,0 +1,34 @@
+{
+  "name": "easy-env-mcp",
+  "version": "0.1.0-alpha",
+  "description": "easy-env MCP server: scenario replay + multi-backend state diff primitives for AI coding agents.",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "easy-env-mcp": "./bin/easy-env-mcp.mjs",
+    "easy-env-daemon": "./bin/easy-env-daemon.mjs"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/server.js",
+    "daemon": "node dist/src/daemon/start.js",
+    "test": "npm run build && node dist/test/daemon-api.js && node dist/test/mcp-handshake.js",
+    "test:daemon": "node dist/test/daemon-api.js",
+    "test:handshake": "node dist/test/mcp-handshake.js",
+    "smoke": "node dist/test/smoke.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "hono": "^4.6.14",
+    "ioredis": "^5.4.1",
+    "mongodb": "^6.5.0",
+    "testcontainers": "^11.14.0",
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "typescript": "^5.4.5"
+  }
+}

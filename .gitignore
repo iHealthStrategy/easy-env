@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.state-diff/
+.easy-env/
+.DS_Store
+*.log
+.env
+.env.local

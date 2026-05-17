@@ -1,0 +1,13 @@
+{
+  "name": "mini-orders-buggy",
+  "private": true,
+  "version": "0.0.1",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mongodb": "^6.5.0",
+    "ioredis": "^5.4.1"
+  }
+}

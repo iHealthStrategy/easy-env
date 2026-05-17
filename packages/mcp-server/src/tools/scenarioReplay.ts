@@ -1,0 +1,108 @@
+import { z } from 'zod';
+import { ScenarioConfig } from '../schemas/scenario.js';
+import { NoisePolicy } from '../schemas/diff.js';
+import { CaptureSpec } from '../schemas/capture.js';
+import { replayScenario } from '../core/orchestrate.js';
+import type { ToolContext } from '../core/context.js';
+import { resolveBackends } from '../core/envOps.js';
+
+// At the tool layer the inline scenario can omit baseUrl/backends/capture and
+// have them filled from easy-env.json. The underlying ScenarioConfig stays
+// strict (artifacts are self-contained once persisted).
+export const ScenarioReplayInputScenario = ScenarioConfig
+  .omit({ baseUrl: true, capture: true, backends: true })
+  .extend({
+    baseUrl: z.string().url().optional(),
+    backends: ScenarioConfig.shape.backends.optional(),
+    capture: CaptureSpec.optional(),
+  });
+
+export const ScenarioReplayInput = z.object({
+  scenario: ScenarioReplayInputScenario.optional(),
+  scenarioId: z.string().optional(),
+  envId: z.string().optional(),
+  noisePolicy: NoisePolicy.optional(),
+}).refine(
+  (i) => i.scenario !== undefined || i.scenarioId !== undefined,
+  'Provide either scenario (inline) or scenarioId (previously saved)',
+);
+
+export type ScenarioReplayInput = z.infer<typeof ScenarioReplayInput>;
+
+export async function runScenarioReplay(input: ScenarioReplayInput, ctx: ToolContext) {
+  let scenario: z.infer<typeof ScenarioConfig> | null = null;
+
+  if (input.scenario) {
+    const baseUrl = input.scenario.baseUrl ?? ctx.resolved.baseUrl;
+    if (!baseUrl) {
+      throw new Error(
+        'scenario.replay requires a baseUrl. Provide scenario.baseUrl, or set app.baseUrl in easy-env.json.',
+      );
+    }
+    const capture =
+      input.scenario.capture
+      ?? (ctx.config.defaults.capture
+        ? {
+            mongo: ctx.config.defaults.capture.mongo,
+            redis: ctx.config.defaults.capture.redis,
+          }
+        : undefined);
+    if (!capture) {
+      throw new Error(
+        'scenario.replay requires a capture spec. Provide scenario.capture, or set defaults.capture in easy-env.json.',
+      );
+    }
+    // Backend resolution: explicit > envId/active env > config > fallback.
+    const resolved = await resolveBackends(
+      ctx.registry,
+      ctx.config,
+      input.envId,
+      input.scenario.backends,
+    );
+    const backends = {
+      mongoUrl: resolved.mongoUrl,
+      dbName: resolved.dbName,
+      redisUrl: resolved.redisUrl,
+    };
+    scenario = ScenarioConfig.parse({
+      ...input.scenario,
+      baseUrl,
+      capture,
+      backends,
+    });
+  } else if (input.scenarioId) {
+    const fetched = await ctx.store.getScenario(input.scenarioId);
+    if (!fetched) throw new Error(`scenario not found: ${input.scenarioId}`);
+    scenario = fetched;
+  }
+
+  if (!scenario) throw new Error('no scenario resolved');
+  await ctx.store.saveScenario(scenario);
+  const noise = input.noisePolicy
+    ?? (ctx.config.defaults.noisePolicy
+      ? {
+          ignoreTimestampFields: ctx.config.defaults.noisePolicy.ignoreTimestampFields ?? [],
+          ignoreRedisTtlDrift: ctx.config.defaults.noisePolicy.ignoreRedisTtlDrift ?? true,
+        }
+      : undefined);
+  const result = await replayScenario(scenario, ctx.store, noise);
+  return {
+    runId: result.run.runId,
+    triggerResponse: result.run.triggerResponse,
+    beforeSnapshotId: result.beforeSnapshotId,
+    afterSnapshotId: result.afterSnapshotId,
+    diffId: result.diffId,
+    settle: result.run.settle,
+    resolvedScenario: {
+      baseUrl: scenario.baseUrl,
+      backends: scenario.backends,
+    },
+  };
+}
+
+export const scenarioReplayToolDescription = {
+  name: 'scenario.replay',
+  description:
+    "Run a scenario end-to-end: execute preconditions, snapshot BEFORE, fire the trigger HTTP request, optionally settle, snapshot AFTER, compute the diff, and persist the run. Returns ids you can use to retrieve individual artifacts. The target app must already be running and reachable at the resolved baseUrl. Omitted baseUrl / backends / capture fields are filled from easy-env.json.",
+  inputSchema: ScenarioReplayInput,
+};

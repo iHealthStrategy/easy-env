@@ -4,7 +4,7 @@
 import { serve } from '@hono/node-server';
 import { FsStore } from '../store/fsStore.js';
 import { buildContext } from '../core/context.js';
-import { buildApp, webDistAvailable } from './server.js';
+import { buildApp } from './server.js';
 import { daemonHost, daemonPort } from './config.js';
 import { writePidFile, deletePidFile, deletePidFileSync, readPidFile, isProcessAlive } from './pidfile.js';
 import { dockerRemoveByEnvId, dockerStateForEnv } from '../core/containers.js';
@@ -72,11 +72,6 @@ async function main(): Promise<void> {
 
   const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
     console.log(`[easy-env-daemon] listening on http://${info.address}:${info.port}`);
-    if (webDistAvailable()) {
-      console.log(`[easy-env-daemon] Web UI:    http://${info.address}:${info.port}/`);
-    } else {
-      console.log('[easy-env-daemon] Web UI:    (not built — run `npm run build --workspace easy-env-web`)');
-    }
   });
 
   await writePidFile({ pid: process.pid, startedAt: new Date(startedAt).toISOString(), port });

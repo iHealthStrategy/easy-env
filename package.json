@@ -13,7 +13,9 @@
     "smoke": "npm run smoke --workspace easy-env-mcp",
     "mcp": "npm run start --workspace easy-env-mcp",
     "daemon": "npm run daemon --workspace easy-env-mcp",
-    "web": "npm run dev --workspace easy-env-web",
+    "app:install": "npm --prefix app install",
+    "app:dev": "npm --prefix app run tauri:dev",
+    "app:build": "npm --prefix app run tauri:build",
     "clean": "rm -rf packages/*/dist packages/*/node_modules node_modules"
   }
 }

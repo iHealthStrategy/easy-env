@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "name": "mini-orders",
   "backends": {
     "mongo": {
       "image": "mongo:6",

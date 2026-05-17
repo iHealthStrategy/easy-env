@@ -9,23 +9,38 @@ import {
   envStatus,
   envReset,
 } from '../core/envOps.js';
+import type { BackendsSpec } from '../core/backends.js';
+import { ProjectName } from '../schemas/manifest.js';
 
 // --- env.up ----------------------------------------------------------------
 
 export const EnvUpInput = z.object({
+  projectName: ProjectName,
+  projectRoot: z.string().min(1),
   setActive: z.boolean().default(true),
   withoutMongo: z.boolean().default(false),
   withoutRedis: z.boolean().default(false),
 });
 
+async function loadBackendsSpec(ctx: ToolContext, projectName: string, projectRoot: string): Promise<BackendsSpec> {
+  const manifest = await ctx.manifests.loadOrInit(projectName, projectRoot);
+  return {
+    mongo: manifest.backends.mongo,
+    redis: manifest.backends.redis,
+  };
+}
+
 export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolContext) {
-  const env = await envUp(ctx.config, ctx.registry, {
+  const spec = await loadBackendsSpec(ctx, input.projectName, input.projectRoot);
+  const env = await envUp(spec, ctx.registry, {
     setActive: input.setActive,
     withoutMongo: input.withoutMongo,
     withoutRedis: input.withoutRedis,
+    projectName: input.projectName,
   });
   return {
     envId: env.envId,
+    projectName: input.projectName,
     status: env.status,
     resolved: env.resolved,
     containers: {
@@ -43,20 +58,26 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
 export const envUpToolDescription = {
   name: 'env.up',
   description:
-    "Provision a fresh isolated environment for this project using Testcontainers. Reads images from easy-env.json (backends.mongo.image / backends.redis.image) and spawns containers with dynamic ports. Returns envId + resolved URLs that other tools accept via envId. Sets this env as 'active' so subsequent tool calls default to it.",
+    "Provision a fresh isolated environment for a project using Testcontainers. Pass { projectName, projectRoot }; the daemon looks up the manifest written by env.init to learn which images and host ports to use. Returns envId + resolved URLs that downstream tools accept via envId. Sets this env as 'active' so subsequent tool calls default to it.",
   inputSchema: EnvUpInput,
 };
 
 // --- env.list --------------------------------------------------------------
 
-export const EnvListInput = z.object({});
+export const EnvListInput = z.object({
+  projectName: ProjectName.optional(),
+});
 
-export async function runEnvList(_input: unknown, ctx: ToolContext) {
+export async function runEnvList(input: z.infer<typeof EnvListInput>, ctx: ToolContext) {
   const { envs, activeEnvId } = await envList(ctx.registry);
+  const filtered = input.projectName
+    ? envs.filter((e) => e.labels?.['easy-env.project'] === input.projectName)
+    : envs;
   return {
     activeEnvId,
-    envs: envs.map((e) => ({
+    envs: filtered.map((e) => ({
       envId: e.envId,
+      projectName: e.labels?.['easy-env.project'] ?? null,
       createdAt: e.createdAt,
       status: e.status,
       resolved: e.resolved,
@@ -71,7 +92,7 @@ export async function runEnvList(_input: unknown, ctx: ToolContext) {
 export const envListToolDescription = {
   name: 'env.list',
   description:
-    'List all environments easy-env currently manages on this host, plus which one is active (the default target for other tools). Use this to discover other agents/sessions sharing the host.',
+    "List all environments easy-env currently manages on this host, plus which one is active. Optionally filter by projectName.",
   inputSchema: EnvListInput,
 };
 
@@ -83,6 +104,7 @@ export async function runEnvStatus(input: z.infer<typeof EnvStatusInput>, ctx: T
   const { env, mongoReachable, redisReachable } = await envStatus(input.envId, ctx.registry);
   return {
     envId: env.envId,
+    projectName: env.labels?.['easy-env.project'] ?? null,
     createdAt: env.createdAt,
     status: env.status,
     resolved: env.resolved,
@@ -108,10 +130,23 @@ export const envStatusToolDescription = {
 export const EnvResetInput = z.object({
   envId: z.string(),
   recreate: z.boolean().default(false),
+  // Required when recreate:true so the daemon can read the manifest and
+  // spin up replacement containers with the same backends spec.
+  projectName: ProjectName.optional(),
+  projectRoot: z.string().min(1).optional(),
 });
 
 export async function runEnvReset(input: z.infer<typeof EnvResetInput>, ctx: ToolContext) {
-  const env = await envReset(input.envId, ctx.registry, input.recreate, ctx.config);
+  let spec: BackendsSpec | null = null;
+  if (input.recreate) {
+    if (!input.projectName || !input.projectRoot) {
+      throw new Error(
+        'env.reset with recreate:true requires { projectName, projectRoot } so the daemon can read the manifest.',
+      );
+    }
+    spec = await loadBackendsSpec(ctx, input.projectName, input.projectRoot);
+  }
+  const env = await envReset(input.envId, ctx.registry, input.recreate, spec, input.projectName);
   return {
     envId: env.envId,
     status: env.status,
@@ -126,7 +161,7 @@ export async function runEnvReset(input: z.infer<typeof EnvResetInput>, ctx: Too
 export const envResetToolDescription = {
   name: 'env.reset',
   description:
-    'Reset an environment to a clean state. Default (recreate:false) is FAST: dropDatabase + flushdb against the existing containers, milliseconds. With recreate:true, containers are destroyed and freshly spawned (new envId, several seconds, the only way to recover from corrupted volumes).',
+    'Reset an environment to a clean state. Default (recreate:false) is FAST: dropDatabase + flushdb against the existing containers. With recreate:true, containers are destroyed and freshly spawned (requires projectName + projectRoot so the daemon can read the manifest).',
   inputSchema: EnvResetInput,
 };
 
@@ -142,6 +177,6 @@ export async function runEnvDown(input: z.infer<typeof EnvDownInput>, ctx: ToolC
 export const envDownToolDescription = {
   name: 'env.down',
   description:
-    'Destroy an environment: stop its containers and remove it from the registry. Use this when the test session is done. Containers are automatically reaped if easy-env crashes (ryuk), but env.down is the cooperative shutdown path.',
+    'Destroy an environment: stop its containers and remove it from the registry. Containers are automatically reaped if easy-env crashes (ryuk), but env.down is the cooperative shutdown path.',
   inputSchema: EnvDownInput,
 };

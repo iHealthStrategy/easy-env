@@ -12,10 +12,8 @@ import fs from 'node:fs/promises';
 import { FsStore } from '../src/store/fsStore.js';
 import { buildContext } from '../src/core/context.js';
 import { runStateCapture } from '../src/tools/stateCapture.js';
-import { runScenarioSettle } from '../src/tools/scenarioSettle.js';
-import { runDiffCompare } from '../src/tools/diffCompare.js';
 import { runScenarioReplay } from '../src/tools/scenarioReplay.js';
-import { runEnvConfig } from '../src/tools/envConfig.js';
+import { runEnvInit } from '../src/tools/envInit.js';
 import {
   runEnvUp,
   runEnvList,
@@ -72,24 +70,30 @@ function assert(cond: unknown, msg: string): asserts cond {
 async function main() {
   const storeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'easy-env-smoke-'));
   process.env.EASY_ENV_HOME = storeRoot;
-  process.env.EASY_ENV_CONFIG = path.join(MINI_ORDERS_DIR, 'easy-env.json');
   const store = FsStore.default();
   const ctx = buildContext(store);
+
+  const PROJECT_NAME = 'mini-orders';
+  const PROJECT_ROOT = MINI_ORDERS_DIR;
 
   let app: ChildProcess | null = null;
   let envId: string | null = null;
 
   try {
-    // ----- 1. env.config: what does the project ask for? --------------------
-    const cfgResult = await runEnvConfig({ probeVersions: false });
-    console.log('  env.config configPath:', cfgResult.configPath);
-    assert(cfgResult.configPath?.endsWith('fixtures/mini-orders/easy-env.json'),
-      'should discover fixture easy-env.json');
-    console.log('  ✓ env.config');
+    // ----- 1. env.init: register the project's manifest with daemon --------
+    const init = await runEnvInit(
+      { projectName: PROJECT_NAME, projectRoot: PROJECT_ROOT, mongo: { image: 'mongo:6' }, redis: { image: 'redis:7-alpine' } },
+      ctx,
+    );
+    assert(init.projectName === PROJECT_NAME, 'env.init should echo back projectName');
+    console.log('  ✓ env.init');
 
     // ----- 2. env.up: spawn fresh isolated containers ----------------------
     console.log('  env.up: spawning fresh mongo + redis (Testcontainers)...');
-    const up = await runEnvUp({ setActive: true, withoutMongo: false, withoutRedis: false }, ctx);
+    const up = await runEnvUp(
+      { projectName: PROJECT_NAME, projectRoot: PROJECT_ROOT, setActive: true, withoutMongo: false, withoutRedis: false },
+      ctx,
+    );
     envId = up.envId;
     console.log(`  → envId=${envId}, mongo @${up.resolved.mongoUrl}, redis @${up.resolved.redisUrl}`);
     assert(up.status === 'ready', 'env.up should reach ready');
@@ -110,7 +114,7 @@ async function main() {
     app = startMiniOrders({
       MONGO_URL: up.resolved.mongoUrl!,
       REDIS_URL: up.resolved.redisUrl!,
-      DB_NAME: up.resolved.dbName,
+      DB_NAME: up.resolved.dbName ?? 'mini',
     });
     await waitForHealth();
 

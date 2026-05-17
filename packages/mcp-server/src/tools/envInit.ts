@@ -1,71 +1,65 @@
-// env.init — scan the project for likely backend ports and (optionally)
-// write them into easy-env.json#backends.{mongo,redis}.port so MONGO_URL
-// and REDIS_URL stay stable across env.up cycles.
-import path from 'node:path';
+// env.init — persist this project's backends configuration into the
+// daemon-side manifest. AI is responsible for reading the project's
+// easy-env.json (or whatever source) and passing the resolved values
+// in via this call. The daemon never opens any file inside the project.
 import { z } from 'zod';
 import type { ToolContext } from '../core/context.js';
-import { findConfigPath, loadConfig, saveConfig } from '../core/config.js';
-import { suggestPorts } from '../core/envScanner.js';
+import { ProjectName } from '../schemas/manifest.js';
+
+const MongoBackendPatch = z.object({
+  image: z.string().min(1).optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  // The mongo database the project considers its "primary". Optional —
+  // most projects template the db name into MONGO_URL themselves
+  // (`value: "${mongo.url}/blog"`) and never need to set this. Setting
+  // it here only matters for env.reset (so easy-env knows which db to
+  // drop) and as a hint surfaced via vars.list.containers.dbName.
+  dbName: z.string().min(1).optional(),
+});
+
+const RedisBackendPatch = z.object({
+  image: z.string().min(1).optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+});
 
 export const EnvInitInput = z.object({
-  dryRun: z.boolean().default(true),
+  projectName: ProjectName,
+  // Used solely to namespace same-named projects. The daemon stores it
+  // in the manifest and uses it to detect name collisions on subsequent
+  // calls; it never opens any file inside this path.
+  projectRoot: z.string().min(1),
+  mongo: MongoBackendPatch.optional(),
+  redis: RedisBackendPatch.optional(),
 });
 
 export async function runEnvInit(input: z.infer<typeof EnvInitInput>, ctx: ToolContext) {
-  const configPath = ctx.configPath ?? findConfigPath();
-  if (!configPath) {
-    throw new Error(
-      'no easy-env.json found in this project. Create one before running env.init.',
-    );
-  }
-  const projectRoot = path.dirname(configPath);
-  const suggestion = await suggestPorts(projectRoot);
+  const manifest = await ctx.manifests.loadOrInit(input.projectName, input.projectRoot);
 
-  const existingMongo = ctx.config.backends?.mongo?.port;
-  const existingRedis = ctx.config.backends?.redis?.port;
-
-  const proposal = {
-    configPath,
-    projectName: ctx.config.name ?? null,
-    mongo: { ...suggestion.mongo, existing: existingMongo ?? null },
-    redis: { ...suggestion.redis, existing: existingRedis ?? null },
+  // Merge per-backend so callers can update just one of mongo/redis.
+  const next = {
+    ...manifest,
+    backends: {
+      mongo: { ...(manifest.backends.mongo ?? {}), ...(input.mongo ?? {}) },
+      redis: { ...(manifest.backends.redis ?? {}), ...(input.redis ?? {}) },
+    },
   };
+  // Drop empty backend entries to keep the manifest tidy.
+  if (Object.keys(next.backends.mongo).length === 0) delete (next.backends as { mongo?: unknown }).mongo;
+  if (Object.keys(next.backends.redis).length === 0) delete (next.backends as { redis?: unknown }).redis;
 
-  if (input.dryRun) return { applied: false, ...proposal };
-
-  // Apply: write only the ports we'd actually change.
-  const patch: Record<string, unknown> = {};
-  const currentBackends = (ctx.config.backends ?? {}) as Record<string, Record<string, unknown>>;
-  const nextBackends = {
-    ...currentBackends,
-    mongo: { ...(currentBackends.mongo ?? {}), port: existingMongo ?? suggestion.mongo.port },
-    redis: { ...(currentBackends.redis ?? {}), port: existingRedis ?? suggestion.redis.port },
-  };
-  patch.backends = nextBackends;
-
-  saveConfig(patch, projectRoot);
-  // Refresh ctx so subsequent env.up sees the new port.
-  try {
-    const reloaded = loadConfig();
-    ctx.config = reloaded.config;
-    ctx.configPath = reloaded.configPath;
-  } catch {
-    // non-fatal
-  }
+  await ctx.manifests.write(next);
 
   return {
-    applied: true,
-    ...proposal,
-    appliedPorts: {
-      mongo: nextBackends.mongo.port,
-      redis: nextBackends.redis.port,
-    },
+    projectName: next.name,
+    projectRoot: next.projectRoot,
+    backends: next.backends,
+    variables: next.variables,
   };
 }
 
 export const envInitToolDescription = {
   name: 'env.init',
   description:
-    "Suggest fixed host ports for the project's mongo and redis containers and (optionally) write them to easy-env.json#backends.{mongo,redis}.port. Scans docker-compose.* files first to reuse the project's historical ports; falls back to defaults that rarely collide with system services. With these in place, MONGO_URL / REDIS_URL stay stable across env.up cycles. dryRun:true (default) returns the proposal; dryRun:false applies. Preserves any port already set in the config.",
+    "Register or update this project's backend container configuration in the daemon manifest. Pass { projectName, projectRoot, mongo?: { image?, port?, dbName? }, redis?: { image?, port? } }. The AI is the source of truth — it reads the project's easy-env.json and source, then submits the resolved values here. The daemon never opens any file inside projectRoot; that path is recorded only to detect same-name collisions (two different folders both calling themselves 'foo' will be rejected). Subsequent env.up reads images and host ports from this manifest so the resolved Mongo/Redis host:port stays stable across cycles. mongo.dbName is optional — projects usually template the db name into their connection strings via `vars.declare` (e.g. value: \"${mongo.url}/blog\"); only set dbName here if you want env.reset to scope its drop to that db.",
   inputSchema: EnvInitInput,
 };

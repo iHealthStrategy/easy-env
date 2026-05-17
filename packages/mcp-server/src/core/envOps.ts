@@ -5,31 +5,34 @@ import { MongoClient } from 'mongodb';
 import Redis from 'ioredis';
 import type { EnvRegistry } from '../store/envRegistry.js';
 import type { ManagedEnv } from '../schemas/env.js';
-import type { EasyEnvConfig } from '../schemas/config.js';
 import { spawnMongo, spawnRedis, stopAllForEnv, mongoUrlFor, redisUrlFor } from './containers.js';
 import {
+  DEFAULT_MONGO_IMAGE,
+  DEFAULT_REDIS_IMAGE,
   FALLBACK_MONGO_URL,
   FALLBACK_REDIS_URL,
-  FALLBACK_DB_NAME,
-} from './config.js';
+  type BackendsSpec,
+} from './backends.js';
 
 const newEnvId = () => `env_${crypto.randomBytes(6).toString('hex')}`;
 
-function configHash(cfg: EasyEnvConfig): string {
+function configHash(spec: BackendsSpec): string {
   const stable = JSON.stringify({
-    mongoImage: cfg.backends.mongo?.image,
-    redisImage: cfg.backends.redis?.image,
-    dbName: cfg.backends.mongo?.dbName,
+    mongoImage: spec.mongo?.image,
+    redisImage: spec.redis?.image,
+    dbName: spec.mongo?.dbName,
   });
   return crypto.createHash('sha256').update(stable).digest('hex').slice(0, 16);
 }
 
-function commonLabels(envId: string): Record<string, string> {
-  return {
+function commonLabels(envId: string, projectName?: string): Record<string, string> {
+  const labels: Record<string, string> = {
     'easy-env.env-id': envId,
     'easy-env.session': String(process.pid),
     'easy-env.created-at': new Date().toISOString(),
   };
+  if (projectName) labels['easy-env.project'] = projectName;
+  return labels;
 }
 
 export interface UpOptions {
@@ -39,41 +42,39 @@ export interface UpOptions {
   withoutRedis?: boolean;
   /** If true, set this new env as the active one. Default true. */
   setActive?: boolean;
+  /** Project name to tag on the container labels (for sweeping per-project). */
+  projectName?: string;
 }
 
 export async function envUp(
-  cfg: EasyEnvConfig,
+  spec: BackendsSpec,
   registry: EnvRegistry,
   opts: UpOptions = {},
 ): Promise<ManagedEnv> {
   const envId = newEnvId();
-  const labels = commonLabels(envId);
-  const dbName = cfg.backends.mongo?.dbName ?? FALLBACK_DB_NAME;
+  const labels = commonLabels(envId, opts.projectName);
+  const dbName = spec.mongo?.dbName;
 
-  // Initial record: status=starting so partial failure leaves a trail.
   const initial: ManagedEnv = {
     envId,
     createdAt: new Date().toISOString(),
     status: 'starting',
-    configHash: configHash(cfg),
-    resolved: { dbName },
+    configHash: configHash(spec),
+    resolved: dbName ? { dbName } : {},
     labels,
   };
   await registry.save(initial);
 
   try {
-    // Default to mongo:4.2 — the most common version still in use across
-    // the user's real projects (e.g. blog-backend pins to 3.2, kithPay 4.x,
-    // newer services 6.0). 4.2 is the "median compatible" default.
-    const mongoImage = cfg.backends.mongo?.image ?? 'mongo:4.2';
-    const redisImage = cfg.backends.redis?.image ?? 'redis:7-alpine';
+    const mongoImage = spec.mongo?.image ?? DEFAULT_MONGO_IMAGE;
+    const redisImage = spec.redis?.image ?? DEFAULT_REDIS_IMAGE;
 
     const mongo = opts.withoutMongo
       ? undefined
-      : await spawnMongo({ envId, image: mongoImage, labels, hostPort: cfg.backends.mongo?.port });
+      : await spawnMongo({ envId, image: mongoImage, labels, hostPort: spec.mongo?.port });
     const redis = opts.withoutRedis
       ? undefined
-      : await spawnRedis({ envId, image: redisImage, labels, hostPort: cfg.backends.redis?.port });
+      : await spawnRedis({ envId, image: redisImage, labels, hostPort: spec.redis?.port });
 
     const ready: ManagedEnv = {
       ...initial,
@@ -81,7 +82,7 @@ export async function envUp(
       mongo,
       redis,
       resolved: {
-        dbName,
+        ...(dbName ? { dbName } : {}),
         mongoUrl: mongo ? mongoUrlFor(mongo) : undefined,
         redisUrl: redis ? redisUrlFor(redis) : undefined,
       },
@@ -96,7 +97,6 @@ export async function envUp(
       error: (e as Error).message,
     };
     await registry.save(failed);
-    // Try to clean up anything that did start.
     await stopAllForEnv(envId).catch(() => undefined);
     throw e;
   }
@@ -160,21 +160,24 @@ export async function envReset(
   envId: string,
   registry: EnvRegistry,
   recreate: boolean,
-  cfg: EasyEnvConfig | null,
+  recreateSpec: BackendsSpec | null,
+  projectName?: string,
 ): Promise<ManagedEnv> {
   const env = await registry.get(envId);
   if (!env) throw new Error(`env not found: ${envId}`);
 
   if (recreate) {
-    if (!cfg) {
-      throw new Error('env.reset with recreate:true requires the active easy-env.json');
+    if (!recreateSpec) {
+      throw new Error('env.reset with recreate:true requires backends spec (pass projectName so we can read the manifest).');
     }
     await envDown(envId, registry);
-    return envUp(cfg, registry, { setActive: true });
+    return envUp(recreateSpec, registry, { setActive: true, projectName });
   }
 
-  // Fast path: drop database + flush redis. Containers stay up.
-  if (env.resolved.mongoUrl) {
+  if (env.resolved.mongoUrl && env.resolved.dbName) {
+    // Only drop a database when the project told us which one. Otherwise
+    // the project is likely using multiple dbs in this Mongo instance —
+    // it must clean up its own data with project-specific tooling.
     const client = await MongoClient.connect(env.resolved.mongoUrl);
     try {
       await client.db(env.resolved.dbName).dropDatabase();
@@ -204,22 +207,23 @@ export async function resolveEnv(
 }
 
 /**
- * Fallback resolver: produces { mongoUrl, redisUrl, dbName } from an env if
- * available, otherwise from config defaults, otherwise from built-in fallbacks.
- * This is the single point where envId addressing wins over per-call backends.
+ * Fallback resolver: produces { mongoUrl, redisUrl, dbName? } from an env
+ * if available, otherwise from built-in URL fallbacks. Explicit overrides
+ * win. dbName is optional: if neither caller nor env supplies one, it's
+ * omitted — downstream callers (state.capture, scenario.replay) must
+ * decide what to do without it (typically: require the caller to supply
+ * one for db-scoped operations).
  */
 export async function resolveBackends(
   registry: EnvRegistry,
-  cfg: EasyEnvConfig,
   envId?: string,
   override?: { mongoUrl?: string; redisUrl?: string; dbName?: string },
-): Promise<{ mongoUrl: string; redisUrl: string; dbName: string; envId?: string }> {
-  // Explicit override wins (for ad-hoc connections).
+): Promise<{ mongoUrl: string; redisUrl: string; dbName?: string; envId?: string }> {
   if (override?.mongoUrl && override?.redisUrl) {
     return {
       mongoUrl: override.mongoUrl,
       redisUrl: override.redisUrl,
-      dbName: override.dbName ?? cfg.backends.mongo?.dbName ?? FALLBACK_DB_NAME,
+      dbName: override.dbName,
     };
   }
   const env = await resolveEnv(envId, registry);
@@ -232,8 +236,8 @@ export async function resolveBackends(
     };
   }
   return {
-    mongoUrl: override?.mongoUrl ?? cfg.backends.mongo?.url ?? FALLBACK_MONGO_URL,
-    redisUrl: override?.redisUrl ?? cfg.backends.redis?.url ?? FALLBACK_REDIS_URL,
-    dbName: override?.dbName ?? cfg.backends.mongo?.dbName ?? FALLBACK_DB_NAME,
+    mongoUrl: override?.mongoUrl ?? FALLBACK_MONGO_URL,
+    redisUrl: override?.redisUrl ?? FALLBACK_REDIS_URL,
+    dbName: override?.dbName,
   };
 }

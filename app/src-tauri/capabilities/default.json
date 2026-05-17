@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities granted to the main window: HTTP to local daemon, shell sidecar/process management, dialog, store.",
+  "windows": ["main", "settings"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:event:default",
+    "core:path:default",
+    "core:webview:default",
+    "shell:allow-open",
+    "dialog:default",
+    "store:default",
+    "opener:default"
+  ]
+}

@@ -60,22 +60,28 @@ The design rationale and four-round PoC findings are in
 
 ```
 ┌──────────────────────┐     ┌──────────────────────┐
-│  AI agent (MCP       │     │  Browser (Web UI)    │
-│  client, e.g. Claude │     │                      │
-│  Code)               │     │                      │
+│  AI agent (MCP       │     │  Tauri desktop app   │
+│  client, e.g. Claude │     │  (app/, replaces the │
+│  Code)               │     │   Web UI)            │
 └──────────┬───────────┘     └──────────┬───────────┘
-           │ stdio                       │ HTTP
+           │ stdio                       │ HTTP (via Rust)
            ↓                             ↓
 ┌──────────────────────┐    ┌─────────────────────────┐
 │  easy-env-mcp        │    │  easy-env-daemon        │
 │  (thin client,       │HTTP│  (long-running,         │
 │  forwards tool calls)│───→│   owns containers,      │
-└──────────────────────┘    │   serves API + SPA)     │
+└──────────────────────┘    │   serves HTTP API)      │
                             └────────────┬────────────┘
                                          │
                                          ↓
                                      Docker
 ```
+
+The Tauri app in `app/` is now the recommended management surface — it
+embeds the daemon as a child process and exposes one-click toggles for
+installing the Claude Code skill and registering the MCP server. The
+old browser-served Web UI in `packages/web` still works for headless
+setups.
 
 The daemon is the single owner of container lifecycle and persisted state.
 It exposes:
@@ -88,9 +94,10 @@ It exposes:
 
 ```
 easy-env/
+├── app/                   # Tauri desktop app — daemon + skill + MCP toggles
 ├── packages/
 │   ├── mcp-server/        # MCP stdio server + long-running daemon (TypeScript)
-│   └── web/               # React + Vite admin UI (consumes daemon HTTP API)
+│   └── web/               # legacy browser-served admin UI (still works)
 ├── fixtures/              # small reference apps used to verify primitives
 │   ├── mini-app/          mini-app-buggy/        — sync blog (Round 1/2)
 │   └── mini-orders/       mini-orders-buggy/     — async order pipeline (Round 3/4)
@@ -191,7 +198,23 @@ npm test --workspace easy-env-mcp
 npm run smoke
 ```
 
-### Run the Web UI
+### Run the desktop app (recommended)
+
+```bash
+npm install
+npm run build --workspace easy-env-mcp   # build daemon artifacts first
+npm run app:install                      # install Tauri/Vite deps in app/
+npm run app:dev                          # opens the easy-env window
+```
+
+In the **Settings** panel, toggle:
+- **Daemon** — spawns the embedded daemon (replaces `npm run daemon`)
+- **Skill** — installs `easy-env-bootstrap.md` into `~/.claude/skills/`
+- **MCP server** — registers `easy-env` in `~/.claude.json`
+
+See [`app/README.md`](app/README.md) for details on the Tauri build.
+
+### Run the legacy Web UI
 
 The daemon serves the built SPA on its own port. Start it manually:
 

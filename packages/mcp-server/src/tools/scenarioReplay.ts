@@ -33,29 +33,15 @@ export async function runScenarioReplay(input: ScenarioReplayInput, ctx: ToolCon
   let scenario: z.infer<typeof ScenarioConfig> | null = null;
 
   if (input.scenario) {
-    const baseUrl = input.scenario.baseUrl ?? ctx.resolved.baseUrl;
-    if (!baseUrl) {
-      throw new Error(
-        'scenario.replay requires a baseUrl. Provide scenario.baseUrl, or set app.baseUrl in easy-env.json.',
-      );
+    if (!input.scenario.baseUrl) {
+      throw new Error('scenario.replay requires scenario.baseUrl.');
     }
-    const capture =
-      input.scenario.capture
-      ?? (ctx.config.defaults.capture
-        ? {
-            mongo: ctx.config.defaults.capture.mongo,
-            redis: ctx.config.defaults.capture.redis,
-          }
-        : undefined);
-    if (!capture) {
-      throw new Error(
-        'scenario.replay requires a capture spec. Provide scenario.capture, or set defaults.capture in easy-env.json.',
-      );
+    if (!input.scenario.capture) {
+      throw new Error('scenario.replay requires scenario.capture.');
     }
-    // Backend resolution: explicit > envId/active env > config > fallback.
+    // Backend resolution: explicit > envId/active env > built-in fallback.
     const resolved = await resolveBackends(
       ctx.registry,
-      ctx.config,
       input.envId,
       input.scenario.backends,
     );
@@ -66,8 +52,8 @@ export async function runScenarioReplay(input: ScenarioReplayInput, ctx: ToolCon
     };
     scenario = ScenarioConfig.parse({
       ...input.scenario,
-      baseUrl,
-      capture,
+      baseUrl: input.scenario.baseUrl,
+      capture: input.scenario.capture,
       backends,
     });
   } else if (input.scenarioId) {
@@ -78,14 +64,7 @@ export async function runScenarioReplay(input: ScenarioReplayInput, ctx: ToolCon
 
   if (!scenario) throw new Error('no scenario resolved');
   await ctx.store.saveScenario(scenario);
-  const noise = input.noisePolicy
-    ?? (ctx.config.defaults.noisePolicy
-      ? {
-          ignoreTimestampFields: ctx.config.defaults.noisePolicy.ignoreTimestampFields ?? [],
-          ignoreRedisTtlDrift: ctx.config.defaults.noisePolicy.ignoreRedisTtlDrift ?? true,
-        }
-      : undefined);
-  const result = await replayScenario(scenario, ctx.store, noise);
+  const result = await replayScenario(scenario, ctx.store, input.noisePolicy);
   return {
     runId: result.run.runId,
     triggerResponse: result.run.triggerResponse,
@@ -103,6 +82,6 @@ export async function runScenarioReplay(input: ScenarioReplayInput, ctx: ToolCon
 export const scenarioReplayToolDescription = {
   name: 'scenario.replay',
   description:
-    "Run a scenario end-to-end: execute preconditions, snapshot BEFORE, fire the trigger HTTP request, optionally settle, snapshot AFTER, compute the diff, and persist the run. Returns ids you can use to retrieve individual artifacts. The target app must already be running and reachable at the resolved baseUrl. Omitted baseUrl / backends / capture fields are filled from easy-env.json.",
+    "Run a scenario end-to-end: execute preconditions, snapshot BEFORE, fire the trigger HTTP request, optionally settle, snapshot AFTER, compute the diff, and persist the run. Returns ids you can use to retrieve individual artifacts. The target app must already be running and reachable at the resolved baseUrl. baseUrl and capture are required on the inline scenario; backends fall back to envId/active env when omitted.",
   inputSchema: ScenarioReplayInput,
 };

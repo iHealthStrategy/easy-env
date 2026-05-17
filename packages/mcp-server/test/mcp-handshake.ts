@@ -61,11 +61,11 @@ async function main() {
   for (const t of tools) {
     console.log(`  - ${t.name}: ${t.description.slice(0, 70)}...`);
   }
-  if (tools.length !== 20) throw new Error(`expected 20 tools, got ${tools.length}`);
+  if (tools.length !== 21) throw new Error(`expected 21 tools, got ${tools.length}`);
   const expectedNames = [
     'env.config', 'env.init', 'env.up', 'env.list', 'env.status', 'env.reset', 'env.down',
     'db.seed', 'db.find', 'db.insert', 'db.update', 'db.delete',
-    'vars.list', 'vars.set', 'vars.unset', 'vars.init',
+    'vars.list', 'vars.set', 'vars.unset', 'vars.declare', 'vars.scan',
     'state.capture', 'scenario.settle', 'diff.compare', 'scenario.replay',
   ];
   for (const name of expectedNames) {

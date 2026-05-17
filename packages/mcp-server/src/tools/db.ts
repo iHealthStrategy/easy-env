@@ -30,6 +30,11 @@ async function withMongo<T>(
   fn: (client: MongoClient, dbName: string) => Promise<T>,
 ): Promise<T> {
   const env = await ensureManagedEnv(envId, ctx);
+  if (!env.resolved.dbName) {
+    throw new Error(
+      `db.* tools require backends.mongo.dbName to be set in the project's easy-env.json — easy-env no longer assumes a default dbName. (envId=${env.envId})`,
+    );
+  }
   const client = await MongoClient.connect(env.resolved.mongoUrl!);
   try {
     return await fn(client, env.resolved.dbName);

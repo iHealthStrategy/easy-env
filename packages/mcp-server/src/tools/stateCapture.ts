@@ -14,8 +14,8 @@ export const StateCaptureInput = z.object({
 export type StateCaptureInput = z.infer<typeof StateCaptureInput>;
 
 export async function runStateCapture(input: StateCaptureInput, ctx: ToolContext) {
-  // Resolution order: explicit backends > envId (or active env) > config > fallback.
-  const resolved = await resolveBackends(ctx.registry, ctx.config, input.envId, input.backends);
+  // Resolution order: explicit backends > envId (or active env) > built-in fallback.
+  const resolved = await resolveBackends(ctx.registry, input.envId, input.backends);
   const snap = await captureState(input.spec, resolved);
   if (input.scenarioId) await ctx.store.saveSnapshot(input.scenarioId, snap);
   else await ctx.store.saveSnapshot('_adhoc', snap);
@@ -37,6 +37,6 @@ export async function runStateCapture(input: StateCaptureInput, ctx: ToolContext
 export const stateCaptureToolDescription = {
   name: 'state.capture',
   description:
-    "Snapshot the current state across configured backends (Mongo collections, Redis keys). Returns a stable snapshotId you can later pass to diff.compare. Backends are resolved in this order: explicit `backends` arg > `envId` (or the active managed env) > easy-env.json defaults > built-in fallbacks.",
+    "Snapshot the current state across configured backends (Mongo collections, Redis keys). Returns a stable snapshotId you can later pass to diff.compare. Backends are resolved in this order: explicit `backends` arg > `envId` (or the active managed env) > built-in fallbacks.",
   inputSchema: StateCaptureInput,
 };

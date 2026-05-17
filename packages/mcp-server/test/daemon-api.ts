@@ -54,29 +54,7 @@ async function expect(cond: boolean, msg: string): Promise<void> {
   if (!cond) throw new Error(`assertion failed: ${msg}`);
 }
 
-async function testComposeMongoUrl(): Promise<void> {
-  const { composeMongoUrl } = await import('../src/core/vars.js');
-  await expect(
-    composeMongoUrl('mongodb://localhost:32799', 'blog') === 'mongodb://localhost:32799/blog',
-    'bare URL should append dbName',
-  );
-  await expect(
-    composeMongoUrl('mongodb://localhost:32799/', 'blog') === 'mongodb://localhost:32799/blog',
-    'trailing slash should append dbName cleanly',
-  );
-  await expect(
-    composeMongoUrl('mongodb://localhost:32799/existing', 'blog') === 'mongodb://localhost:32799/existing',
-    'preserve existing path',
-  );
-  await expect(
-    composeMongoUrl('mongodb://localhost:32799', undefined) === 'mongodb://localhost:32799',
-    'no dbName → unchanged',
-  );
-  console.log('  ✓ composeMongoUrl: bare / trailing-slash / preserve / no-dbName');
-}
-
 async function main(): Promise<void> {
-  await testComposeMongoUrl();
   await withTempHome(async () => {
     const { baseUrl, close } = await startServer();
     try {
@@ -91,8 +69,12 @@ async function main(): Promise<void> {
       // tool listing
       {
         const r = await fetch(`${baseUrl}/api/tools`).then((r) => r.json()) as { tools: Array<{ name: string }> };
-        await expect(r.tools.length === 20, `expected 20 tools, got ${r.tools.length}`);
-        console.log('  ✓ GET /api/tools (20 tools)');
+        await expect(r.tools.length === 21, `expected 21 tools, got ${r.tools.length}`);
+        const names = r.tools.map((t) => t.name);
+        await expect(names.includes('vars.declare'), 'vars.declare missing from tool list');
+        await expect(names.includes('vars.scan'), 'vars.scan missing from tool list');
+        await expect(!names.includes('vars.init'), 'vars.init should be replaced by vars.scan + vars.declare');
+        console.log('  ✓ GET /api/tools (21 tools, vars.declare + vars.scan present)');
       }
 
       // env.config via generic dispatch
@@ -192,15 +174,31 @@ async function testVarsFlow(): Promise<void> {
           console.log('  ✓ GET /api/vars (declared only, unset)');
         }
 
-        // set undeclared name → rejected
+        // set undeclared name → implicitly declares + sets (AI ergonomic path)
         {
           const r = await fetch(`${baseUrl}/api/vars/UNDECLARED`, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ value: 'x' }),
           });
-          await expect(!r.ok, 'setting undeclared name should fail');
-          console.log('  ✓ PUT /api/vars/:undeclared → rejected');
+          await expect(r.ok, `set undeclared should succeed (implicit declare): ${r.status}`);
+          const body = await r.json() as { value: string; source: string; autoDeclared: boolean };
+          await expect(body.autoDeclared === true, 'autoDeclared flag should be true');
+          await expect(body.value === 'x' && body.source === 'user', 'set return shape wrong');
+          const cfg = JSON.parse(await fs.readFile(path.join(projectDir, 'easy-env.json'), 'utf8')) as { variables: string[] };
+          await expect(cfg.variables.includes('UNDECLARED'), 'UNDECLARED should be auto-declared into easy-env.json');
+          console.log('  ✓ PUT /api/vars/:undeclared → auto-declared + set');
+        }
+
+        // set container-managed name → still rejected
+        {
+          const r = await fetch(`${baseUrl}/api/vars/MONGO_URL`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ value: 'mongodb://hijack' }),
+          });
+          await expect(!r.ok, 'setting MONGO_URL should fail');
+          console.log('  ✓ PUT /api/vars/MONGO_URL → rejected (container-managed)');
         }
 
         // set declared name → ok
@@ -211,9 +209,10 @@ async function testVarsFlow(): Promise<void> {
             body: JSON.stringify({ value: '/api/v2' }),
           });
           await expect(r.ok, `set should succeed, got ${r.status}`);
-          const body = await r.json() as { value: string; source: string };
+          const body = await r.json() as { value: string; source: string; autoDeclared: boolean };
           await expect(body.value === '/api/v2' && body.source === 'user', 'set return shape wrong');
-          console.log('  ✓ PUT /api/vars/API_PREFIX');
+          await expect(body.autoDeclared === false, 'already-declared name should not be re-declared');
+          console.log('  ✓ PUT /api/vars/API_PREFIX (already declared)');
         }
 
         // list reflects set
@@ -224,36 +223,61 @@ async function testVarsFlow(): Promise<void> {
           console.log('  ✓ GET /api/vars reflects set');
         }
 
-        // init dryRun — should find DISCOVERED + CODE_VAR, NOT MONGO_URL
+        // vars.scan — read-only scanner output
         {
-          const r = await fetch(`${baseUrl}/api/vars/init?dryRun=1`, { method: 'POST' }).then((r) => r.json()) as {
-            applied: boolean;
-            additions: Array<{ name: string }>;
+          const r = await fetch(`${baseUrl}/api/vars/scan`, { method: 'POST' }).then((r) => r.json()) as {
+            candidates: Array<{ name: string; proposedValue?: string }>;
+            newCandidates: Array<{ name: string }>;
           };
-          await expect(r.applied === false, 'dryRun should not apply');
-          const names = r.additions.map((a) => a.name).sort();
-          await expect(names.includes('DISCOVERED'), 'DISCOVERED should be proposed');
-          await expect(names.includes('CODE_VAR'), 'CODE_VAR should be proposed');
-          await expect(!names.includes('MONGO_URL'), 'MONGO_URL is container-managed; must be filtered');
-          await expect(!names.includes('API_PREFIX'), 'API_PREFIX already declared; not an addition');
-          console.log('  ✓ POST /api/vars/init?dryRun=1 (DISCOVERED + CODE_VAR, MONGO_URL filtered)');
-        }
-
-        // init apply — writes back to easy-env.json
-        {
-          const r = await fetch(`${baseUrl}/api/vars/init?dryRun=0`, { method: 'POST' });
-          await expect(r.ok, `apply failed: ${r.status}`);
+          const names = r.candidates.map((c) => c.name).sort();
+          await expect(names.includes('DISCOVERED'), 'DISCOVERED should be in scan candidates');
+          await expect(names.includes('CODE_VAR'), 'CODE_VAR should be in scan candidates');
+          await expect(!names.includes('MONGO_URL'), 'MONGO_URL container-managed; must be filtered');
+          // scan must NOT write to easy-env.json
           const cfg = JSON.parse(await fs.readFile(path.join(projectDir, 'easy-env.json'), 'utf8')) as { variables: string[] };
-          await expect(cfg.variables.includes('DISCOVERED'), 'DISCOVERED not written to config');
-          await expect(cfg.variables.includes('CODE_VAR'), 'CODE_VAR not written to config');
-          console.log('  ✓ POST /api/vars/init?dryRun=0 (writes easy-env.json)');
+          await expect(!cfg.variables.includes('DISCOVERED'), 'scan must not write to easy-env.json');
+          await expect(!cfg.variables.includes('CODE_VAR'), 'scan must not write to easy-env.json');
+          console.log('  ✓ POST /api/vars/scan (read-only candidate list)');
         }
 
-        // list after apply — newly declared names visible as unset
+        // vars.declare — AI submits final list with values
         {
-          const r = await fetch(`${baseUrl}/api/vars`).then((r) => r.json()) as { variables: Record<string, { source: string }> };
-          await expect(r.variables.DISCOVERED?.source === 'unset', 'DISCOVERED should be unset after init');
-          console.log('  ✓ GET /api/vars after init shows newly declared');
+          const r = await fetch(`${baseUrl}/api/vars/declare`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              items: [
+                { name: 'DISCOVERED', value: '1', evidence: '.env.example' },
+                { name: 'CODE_VAR', evidence: 'src/app.ts' },
+                { name: 'MONGO_URL', value: 'should-be-rejected', evidence: 'AI mistake' },
+              ],
+            }),
+          });
+          await expect(r.ok, `declare failed: ${r.status}`);
+          const body = await r.json() as {
+            results: Array<{ name: string; declared: string; valueWritten?: boolean; valueSkippedReason?: string }>;
+            declaredVariables: string[];
+          };
+          const byName = Object.fromEntries(body.results.map((r) => [r.name, r]));
+          await expect(byName.DISCOVERED?.declared === 'added', 'DISCOVERED should be added');
+          await expect(byName.DISCOVERED?.valueWritten === true, 'DISCOVERED value should be written');
+          await expect(byName.CODE_VAR?.declared === 'added', 'CODE_VAR should be added');
+          await expect(byName.CODE_VAR?.valueSkippedReason === 'no-value', 'CODE_VAR has no value');
+          await expect(byName.MONGO_URL?.declared === 'rejected-container-managed', 'MONGO_URL should be rejected');
+          await expect(!body.declaredVariables.includes('MONGO_URL'), 'MONGO_URL must not enter declared list');
+          const cfg = JSON.parse(await fs.readFile(path.join(projectDir, 'easy-env.json'), 'utf8')) as { variables: string[] };
+          await expect(cfg.variables.includes('DISCOVERED'), 'DISCOVERED should be in easy-env.json');
+          await expect(cfg.variables.includes('CODE_VAR'), 'CODE_VAR should be in easy-env.json');
+          console.log('  ✓ POST /api/vars/declare (added 2, rejected MONGO_URL, seeded DISCOVERED)');
+        }
+
+        // list after declare — DISCOVERED is user-sourced, CODE_VAR still unset
+        {
+          const r = await fetch(`${baseUrl}/api/vars`).then((r) => r.json()) as { variables: Record<string, { value: unknown; source: string }> };
+          await expect(r.variables.DISCOVERED?.source === 'user', 'DISCOVERED should be user after declare');
+          await expect(r.variables.DISCOVERED?.value === '1', `DISCOVERED value mismatch: ${JSON.stringify(r.variables.DISCOVERED?.value)}`);
+          await expect(r.variables.CODE_VAR?.source === 'unset', 'CODE_VAR (no value) should be unset');
+          console.log('  ✓ GET /api/vars after declare: DISCOVERED seeded, CODE_VAR still unset');
         }
 
         // unset

@@ -1,4 +1,4 @@
-// Single source of truth for the 15 MCP tools.
+// Single source of truth for the MCP tools.
 // Both the MCP server (stdio) and the daemon HTTP API import from here.
 import { z, type ZodTypeAny } from 'zod';
 import type { ToolContext } from '../core/context.js';
@@ -7,7 +7,6 @@ import { runStateCapture, StateCaptureInput, stateCaptureToolDescription } from 
 import { runScenarioSettle, ScenarioSettleInput, scenarioSettleToolDescription } from './scenarioSettle.js';
 import { runDiffCompare, DiffCompareInput, diffCompareToolDescription } from './diffCompare.js';
 import { runScenarioReplay, ScenarioReplayInput, scenarioReplayToolDescription } from './scenarioReplay.js';
-import { runEnvConfig, EnvConfigInput, envConfigToolDescription } from './envConfig.js';
 import {
   runEnvUp, EnvUpInput, envUpToolDescription,
   runEnvList, EnvListInput, envListToolDescription,
@@ -27,8 +26,9 @@ import {
   runVarsSet, VarsSetInput, varsSetToolDescription,
   runVarsUnset, VarsUnsetInput, varsUnsetToolDescription,
 } from './vars.js';
-import { runVarsInit, VarsInitInput, varsInitToolDescription } from './varsInit.js';
+import { runVarsDeclare, VarsDeclareInput, varsDeclareToolDescription } from './varsDeclare.js';
 import { runEnvInit, EnvInitInput, envInitToolDescription } from './envInit.js';
+import { runProjectDelete, ProjectDeleteInput, projectDeleteToolDescription } from './projectDelete.js';
 
 export interface ToolEntry {
   name: string;
@@ -38,8 +38,7 @@ export interface ToolEntry {
 }
 
 export const TOOL_REGISTRY: ReadonlyArray<ToolEntry> = [
-  // env config / lifecycle
-  { name: envConfigToolDescription.name, description: envConfigToolDescription.description, inputSchema: EnvConfigInput, run: (a) => runEnvConfig(EnvConfigInput.parse(a)) },
+  // env lifecycle
   { name: envInitToolDescription.name, description: envInitToolDescription.description, inputSchema: EnvInitInput, run: (a, c) => runEnvInit(EnvInitInput.parse(a), c) },
   { name: envUpToolDescription.name, description: envUpToolDescription.description, inputSchema: EnvUpInput, run: (a, c) => runEnvUp(EnvUpInput.parse(a), c) },
   { name: envListToolDescription.name, description: envListToolDescription.description, inputSchema: EnvListInput, run: (a, c) => runEnvList(EnvListInput.parse(a), c) },
@@ -58,7 +57,8 @@ export const TOOL_REGISTRY: ReadonlyArray<ToolEntry> = [
   { name: varsListToolDescription.name, description: varsListToolDescription.description, inputSchema: VarsListInput, run: (a, c) => runVarsList(VarsListInput.parse(a), c) },
   { name: varsSetToolDescription.name, description: varsSetToolDescription.description, inputSchema: VarsSetInput, run: (a, c) => runVarsSet(VarsSetInput.parse(a), c) },
   { name: varsUnsetToolDescription.name, description: varsUnsetToolDescription.description, inputSchema: VarsUnsetInput, run: (a, c) => runVarsUnset(VarsUnsetInput.parse(a), c) },
-  { name: varsInitToolDescription.name, description: varsInitToolDescription.description, inputSchema: VarsInitInput, run: (a, c) => runVarsInit(VarsInitInput.parse(a), c) },
+  { name: varsDeclareToolDescription.name, description: varsDeclareToolDescription.description, inputSchema: VarsDeclareInput, run: (a, c) => runVarsDeclare(VarsDeclareInput.parse(a), c) },
+  { name: projectDeleteToolDescription.name, description: projectDeleteToolDescription.description, inputSchema: ProjectDeleteInput, run: (a, c) => runProjectDelete(ProjectDeleteInput.parse(a), c) },
 
   // state + scenario
   { name: stateCaptureToolDescription.name, description: stateCaptureToolDescription.description, inputSchema: StateCaptureInput, run: (a, c) => runStateCapture(StateCaptureInput.parse(a), c) },
@@ -71,5 +71,4 @@ export function findTool(name: string): ToolEntry | undefined {
   return TOOL_REGISTRY.find((t) => t.name === name);
 }
 
-// Re-export z for callers that need it without re-importing.
 export { z };

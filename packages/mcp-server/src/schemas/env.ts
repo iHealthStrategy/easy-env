@@ -20,7 +20,12 @@ export const ManagedEnv = z.object({
   resolved: z.object({
     mongoUrl: z.string().optional(),
     redisUrl: z.string().optional(),
-    dbName: z.string(),
+    // Optional — only set when the project explicitly declares
+    // backends.mongo.dbName in its easy-env.json. easy-env no longer
+    // injects a fallback dbName; if the project wants /<dbname> in
+    // MONGO_URL, it should template it (e.g. value: "${mongo.url}/blog")
+    // in its vars.declare submission.
+    dbName: z.string().optional(),
   }),
   labels: z.record(z.string(), z.string()),
   error: z.string().optional(),

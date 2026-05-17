@@ -5,8 +5,6 @@ import { ZodError } from 'zod';
 
 import type { ToolContext } from '../core/context.js';
 import { findTool, TOOL_REGISTRY } from '../tools/registry.js';
-import { loadConfig } from '../core/config.js';
-import { resolveWebDist, staticSpa } from './static.js';
 import { ActivityLog } from './activity.js';
 
 const VERSION = '0.1.0-alpha';
@@ -15,9 +13,6 @@ export function buildApp(ctx: ToolContext, startedAt: number): Hono {
   const app = new Hono();
   const activity = new ActivityLog();
 
-  // Wrap a tool invocation with activity recording. Used by both the
-  // generic /api/tools/:name endpoint and the resource endpoints below
-  // (so the Web UI's GET-style requests show up in activity too).
   const invokeTool = async (toolName: string, args: unknown): Promise<unknown> => {
     const tool = findTool(toolName);
     if (!tool) throw new Error(`unknown tool: ${toolName}`);
@@ -60,16 +55,47 @@ export function buildApp(ctx: ToolContext, startedAt: number): Hono {
     return c.json({ entries: activity.recent(limit), stats: activity.stats() });
   });
 
-  app.get('/api/config', (c) => {
-    const loaded = loadConfig();
-    return c.json({ configPath: loaded.configPath, config: loaded.config });
-  });
-
   app.get('/api/tools', (c) =>
     c.json({
       tools: TOOL_REGISTRY.map((t) => ({ name: t.name, description: t.description })),
     }),
   );
+
+  // ── projects index (Web UI) ───────────────────────────────────────────────
+  app.get('/api/projects', async (c) => {
+    try {
+      const names = await ctx.manifests.list();
+      const projects = await Promise.all(
+        names.map(async (name) => {
+          const m = await ctx.manifests.read(name);
+          return m
+            ? { name: m.name, projectRoot: m.projectRoot, backends: m.backends, variableCount: m.variables.length }
+            : null;
+        }),
+      );
+      return c.json({ projects: projects.filter(Boolean) });
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  app.get('/api/projects/:name', async (c) => {
+    try {
+      const m = await ctx.manifests.read(c.req.param('name'));
+      if (!m) return c.json({ error: { code: 'not-found', message: 'project not found' } }, 404);
+      return c.json({ manifest: m });
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  app.delete('/api/projects/:name', async (c) => {
+    try {
+      return c.json(await invokeTool('project.delete', { projectName: c.req.param('name') }));
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
 
   // ── generic tool dispatch (MCP thin client uses this) ─────────────────────
   app.post('/api/tools/:name', async (c) => {
@@ -97,7 +123,8 @@ export function buildApp(ctx: ToolContext, startedAt: number): Hono {
   // ── envs resource endpoints (Web UI) ──────────────────────────────────────
   app.get('/api/envs', async (c) => {
     try {
-      return c.json(await invokeTool('env.list', {}));
+      const projectName = c.req.query('projectName') ?? undefined;
+      return c.json(await invokeTool('env.list', projectName ? { projectName } : {}));
     } catch (e) {
       return handleError(c, e);
     }
@@ -151,68 +178,50 @@ export function buildApp(ctx: ToolContext, startedAt: number): Hono {
   });
 
   // ── vars resource endpoints (Web UI) ──────────────────────────────────────
-  app.get('/api/vars', async (c) => {
+  // All vars endpoints require ?projectName=… because the daemon never
+  // assumes a "current project" — every call carries its own identity.
+  app.get('/api/projects/:name/vars', async (c) => {
     try {
-      return c.json(await invokeTool('vars.list', {}));
+      return c.json(await invokeTool('vars.list', { projectName: c.req.param('name') }));
     } catch (e) {
       return handleError(c, e);
     }
   });
 
-  app.put('/api/vars/:name', async (c) => {
+  app.put('/api/projects/:name/vars/:varName', async (c) => {
     try {
-      const body = (await c.req.json().catch(() => ({}))) as { value?: unknown };
-      return c.json(await invokeTool('vars.set', { name: c.req.param('name'), value: body.value ?? null }));
+      const body = (await c.req.json().catch(() => ({}))) as { value?: unknown; projectRoot?: string };
+      if (!body.projectRoot) {
+        return c.json({ error: { code: 'invalid-input', message: 'projectRoot required in body' } }, 400);
+      }
+      return c.json(await invokeTool('vars.set', {
+        projectName: c.req.param('name'),
+        projectRoot: body.projectRoot,
+        name: c.req.param('varName'),
+        value: body.value ?? null,
+      }));
     } catch (e) {
       return handleError(c, e);
     }
   });
 
-  app.delete('/api/vars/:name', async (c) => {
+  app.delete('/api/projects/:name/vars/:varName', async (c) => {
     try {
-      return c.json(await invokeTool('vars.unset', { name: c.req.param('name') }));
+      return c.json(await invokeTool('vars.unset', {
+        projectName: c.req.param('name'),
+        name: c.req.param('varName'),
+      }));
     } catch (e) {
       return handleError(c, e);
     }
   });
-
-  app.post('/api/vars/init', async (c) => {
-    try {
-      const dryRun = c.req.query('dryRun') !== '0' && c.req.query('dryRun') !== 'false';
-      return c.json(await invokeTool('vars.init', { dryRun }));
-    } catch (e) {
-      return handleError(c, e);
-    }
-  });
-
-  app.post('/api/env/init', async (c) => {
-    try {
-      const dryRun = c.req.query('dryRun') !== '0' && c.req.query('dryRun') !== 'false';
-      return c.json(await invokeTool('env.init', { dryRun }));
-    } catch (e) {
-      return handleError(c, e);
-    }
-  });
-
-  // ── static SPA (after API routes, so /api/* never falls through to it) ───
-  const webDist = resolveWebDist();
-  if (webDist) {
-    app.use('*', staticSpa(webDist));
-  }
 
   // ── 404 ───────────────────────────────────────────────────────────────────
-  app.notFound((c) => {
-    if (c.req.path.startsWith('/api/')) {
-      return c.json({ error: { code: 'not-found', message: `no route for ${c.req.method} ${c.req.path}` } }, 404);
-    }
-    return c.text(webDist ? 'not found' : 'Web UI not built. Run `npm run build --workspace easy-env-web`.', 404);
-  });
+  app.notFound((c) =>
+    c.json({ error: { code: 'not-found', message: `no route for ${c.req.method} ${c.req.path}` } }, 404),
+  );
 
   return app;
-}
-
-export function webDistAvailable(): boolean {
-  return resolveWebDist() !== null;
 }
 
 function handleError(c: Context, e: unknown) {
@@ -223,7 +232,6 @@ function handleError(c: Context, e: unknown) {
     );
   }
   const msg = e instanceof Error ? e.message : String(e);
-  // Recognize common application errors via message patterns.
   if (/not found/i.test(msg)) {
     return c.json({ error: { code: 'not-found', message: msg } }, 404);
   }

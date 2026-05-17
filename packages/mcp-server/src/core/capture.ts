@@ -5,13 +5,14 @@ import { newId, nowIso } from './ids.js';
 
 export interface CaptureContext {
   mongoUrl: string;
-  dbName: string;
+  // Optional: omit when the caller doesn't know which db to capture from.
+  // captureState will refuse to capture mongo collections without one.
+  dbName?: string;
   redisUrl: string;
 }
 
 const DEFAULT_CTX: CaptureContext = {
   mongoUrl: 'mongodb://localhost:27018',
-  dbName: 'mini',
   redisUrl: 'redis://localhost:6380',
 };
 
@@ -20,6 +21,11 @@ async function captureMongo(
   ctx: CaptureContext,
 ): Promise<Record<string, Array<Record<string, unknown>>>> {
   if (collections.length === 0) return {};
+  if (!ctx.dbName) {
+    throw new Error(
+      'captureState: mongo collections requested but no dbName supplied. Pass `backends.dbName` explicitly, or include backends.mongo.dbName in your easy-env.json.',
+    );
+  }
   const client = await MongoClient.connect(ctx.mongoUrl);
   try {
     const db = client.db(ctx.dbName);

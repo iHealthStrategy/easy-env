@@ -1,12 +1,32 @@
 // Resolve the effective view of a project's variables for the AI to
 // consume. Merges:
-//   - user values from ProjectVarsStore
-//   - container-derived values from the active managed env
-//   - declared-but-unset names from easy-env.json#variables
+//   - user values from ProjectVarsStore (with template interpolation)
+//   - declared-but-unset names from the project's manifest
+//
+// Container connection info (mongoUrl, redisUrl, dbName, host ports) is
+// also returned as a SEPARATE `containers` field — the AI can use either
+// the templated values or the raw containers handle, whichever fits.
+//
+// Template syntax (interpolated against the active env at vars.list time):
+//   ${mongo.url}     →  mongodb://<host>:<port>            (no /db)
+//   ${mongo.host}    →  host portion of the active mongo container
+//   ${mongo.port}    →  host port portion of the active mongo container
+//   ${mongo.dbName}  →  manifest.backends.mongo.dbName, if set
+//   ${redis.url}     →  redis://<host>:<port>
+//   ${redis.host}    →  host portion of the active redis container
+//   ${redis.port}    →  host port portion of the active redis container
+//
+// Why templates? The project may need many derived URLs that share a
+// host:port but differ in db name (e.g. blog-backend has MONGO_URL,
+// MONGO_BG, MONGO_BP, MONGO_PARROT all pointing to the same Mongo with
+// different dbs). Storing `${mongo.url}/blog` keeps the value durable
+// across daemon restarts where ports may change — the substitution
+// happens at read time, not at write time.
 import type { ToolContext } from './context.js';
-import { ProjectVarsStore, type VarValue } from '../store/projectVarsStore.js';
+import type { ManagedEnv } from '../schemas/env.js';
+import { type VarValue } from '../store/projectVarsStore.js';
 
-export type VarSource = 'user' | 'container' | 'unset';
+export type VarSource = 'user' | 'unset';
 
 export interface VarEntry {
   value: VarValue | null;
@@ -15,85 +35,118 @@ export interface VarEntry {
 
 export type VarsView = Record<string, VarEntry>;
 
-const CONTAINER_VAR_NAMES = new Set(['MONGO_URL', 'MONGO_DB_NAME', 'REDIS_URL']);
-
-export function isContainerManagedName(name: string): boolean {
-  return CONTAINER_VAR_NAMES.has(name);
+export interface ContainersView {
+  envId: string;
+  mongoUrl?: string;
+  redisUrl?: string;
+  dbName?: string;
+  mongoHostPort?: number;
+  redisHostPort?: number;
 }
 
-/**
- * Many Node MongoDB libs (mongodb-auto-reconnect, mongoose, ad-hoc usage)
- * expect MONGO_URL to include /<dbname> in the path. easy-env's container
- * gives us a bare URL plus a separate dbName, so we splice them together
- * when exposing MONGO_URL to projects. If the URL already has a path, we
- * leave it alone — the user's intent wins.
- */
-export function composeMongoUrl(baseUrl: string, dbName?: string): string {
-  if (!dbName) return baseUrl;
-  try {
-    // Use a parseable scheme since URL doesn't always accept 'mongodb:'.
-    const u = new URL(baseUrl.replace(/^mongodb(\+srv)?:/, 'http$1:'));
-    if (u.pathname && u.pathname !== '/' && u.pathname !== '') return baseUrl;
-  } catch {
-    // If we can't parse, fall through to naive append.
-  }
-  return baseUrl.endsWith('/') ? `${baseUrl}${dbName}` : `${baseUrl}/${dbName}`;
+export interface ResolveVarsResult {
+  variables: VarsView;
+  containers: ContainersView | null;
 }
 
-export interface VarsContext {
+export interface ResolveVarsInput {
   ctx: ToolContext;
-  store?: ProjectVarsStore;
+  projectName: string;
 }
 
-export async function resolveVars(input: VarsContext): Promise<VarsView> {
-  const { ctx } = input;
-  const store = input.store ?? new ProjectVarsStore();
+interface ServiceVars {
+  url?: string;
+  host?: string;
+  port?: string;
+  dbName?: string;
+}
 
-  const out: VarsView = {};
+function parseHostPort(url: string | undefined): { host?: string; port?: string } {
+  if (!url) return {};
+  try {
+    const u = new URL(url.replace(/^mongodb(\+srv)?:/, 'http$1:').replace(/^redis:/, 'http:'));
+    return { host: u.hostname || undefined, port: u.port || undefined };
+  } catch {
+    return {};
+  }
+}
 
-  // 1. Container-managed vars from the active env (always editable=false).
+function buildServiceVars(env: ManagedEnv | null): { mongo: ServiceVars; redis: ServiceVars } {
+  if (!env || env.status !== 'ready') return { mongo: {}, redis: {} };
+  const m = parseHostPort(env.resolved.mongoUrl);
+  const r = parseHostPort(env.resolved.redisUrl);
+  return {
+    mongo: {
+      url: env.resolved.mongoUrl,
+      host: m.host,
+      port: m.port,
+      dbName: env.resolved.dbName,
+    },
+    redis: {
+      url: env.resolved.redisUrl,
+      host: r.host,
+      port: r.port,
+    },
+  };
+}
+
+// Recognized placeholders: ${service.field} where service ∈ {mongo, redis}
+// and field is a known property of the corresponding ServiceVars. Unknown
+// placeholders are left as-is (caller can spot the leftover ${...} and fix
+// their template or wait for env.up).
+const PLACEHOLDER = /\$\{(mongo|redis)\.([a-zA-Z]+)\}/g;
+
+export function interpolate(value: VarValue, env: ManagedEnv | null): VarValue {
+  if (typeof value !== 'string' || !value.includes('${')) return value;
+  const services = buildServiceVars(env);
+  return value.replace(PLACEHOLDER, (match, svc: 'mongo' | 'redis', field: string) => {
+    const bag = services[svc] as Record<string, string | undefined>;
+    const replacement = bag[field];
+    return replacement === undefined ? match : replacement;
+  });
+}
+
+export async function resolveVars(input: ResolveVarsInput): Promise<ResolveVarsResult> {
+  const { ctx, projectName } = input;
+
+  // 1. Active env (used both for `containers` view and for template interpolation).
   const activeId = await ctx.registry.getActive();
-  if (activeId) {
-    const env = await ctx.registry.get(activeId);
-    if (env && env.status === 'ready') {
-      if (env.resolved.mongoUrl) {
-        out.MONGO_URL = {
-          value: composeMongoUrl(env.resolved.mongoUrl, env.resolved.dbName),
-          source: 'container',
-        };
-      }
-      if (env.resolved.dbName)   out.MONGO_DB_NAME = { value: env.resolved.dbName, source: 'container' };
-      if (env.resolved.redisUrl) out.REDIS_URL = { value: env.resolved.redisUrl, source: 'container' };
-    }
-  }
+  const env = activeId ? await ctx.registry.get(activeId) : null;
 
-  // 2. Declared user-managed vars from easy-env.json#variables.
-  const projectName = ctx.config.name;
-  const declared = ctx.config.variables ?? [];
-  let userValues: Record<string, VarValue> = {};
-  if (projectName) {
-    userValues = await store.readAll(projectName);
-  }
+  // 2. Manifest declarations + per-project values. Interpolate user values
+  //    against the active env so `${mongo.url}/blog` becomes a concrete URL.
+  const manifest = await ctx.manifests.read(projectName);
+  const declared = manifest?.variables ?? [];
+  const userValues = await ctx.vars.readAll(projectName);
 
+  const variables: VarsView = {};
   for (const name of declared) {
-    // Container vars take precedence over a clashing user declaration.
-    if (out[name]?.source === 'container') continue;
     if (name in userValues) {
-      out[name] = { value: userValues[name], source: 'user' };
+      variables[name] = { value: interpolate(userValues[name], env), source: 'user' };
     } else {
-      out[name] = { value: null, source: 'unset' };
+      variables[name] = { value: null, source: 'unset' };
     }
   }
-
-  // 3. Stray user values (user set something not declared) — surface them
-  //    so they're visible, but they won't be in the AI's consumption path
-  //    if `vars.set` rejects undeclared names. We still show them in case
-  //    the user removed a declaration without cleaning up.
+  // Stray values (set without prior declaration) — still surfaced so the
+  // user can see them.
   for (const [name, value] of Object.entries(userValues)) {
-    if (!(name in out)) {
-      out[name] = { value, source: 'user' };
+    if (!(name in variables)) {
+      variables[name] = { value: interpolate(value, env), source: 'user' };
     }
   }
 
-  return out;
+  // 3. Active env containers, returned as a separate handle.
+  let containers: ContainersView | null = null;
+  if (env && env.status === 'ready') {
+    containers = {
+      envId: env.envId,
+      mongoUrl: env.resolved.mongoUrl,
+      redisUrl: env.resolved.redisUrl,
+      dbName: env.resolved.dbName,
+      mongoHostPort: env.mongo?.hostPort,
+      redisHostPort: env.redis?.hostPort,
+    };
+  }
+
+  return { variables, containers };
 }

@@ -1,7 +1,8 @@
 // React Query hooks. Wraps the typed api client so pages get caching,
 // loading/error state, and refetch out of the box.
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
+import type { VarValue } from './types';
 
 export const queryKeys = {
   health: ['health'] as const,
@@ -13,6 +14,7 @@ export const queryKeys = {
   snapshot: (id: string) => ['snapshots', id] as const,
   diffs: ['diffs'] as const,
   diff: (id: string) => ['diffs', id] as const,
+  vars: ['vars'] as const,
 };
 
 export const useHealth = (opts?: { refetchInterval?: number }) =>
@@ -26,3 +28,31 @@ export const useSnapshots = () => useQuery({ queryKey: queryKeys.snapshots, quer
 export const useSnapshot = (id: string) => useQuery({ queryKey: queryKeys.snapshot(id), queryFn: () => api.getSnapshot(id) });
 export const useDiffs = () => useQuery({ queryKey: queryKeys.diffs, queryFn: api.listDiffs });
 export const useDiff = (id: string) => useQuery({ queryKey: queryKeys.diff(id), queryFn: () => api.getDiff(id) });
+
+export const useVars = () => useQuery({ queryKey: queryKeys.vars, queryFn: api.listVars });
+
+export function useSetVar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, value }: { name: string; value: VarValue }) => api.setVar(name, value),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.vars }),
+  });
+}
+
+export function useUnsetVar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.unsetVar(name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.vars }),
+  });
+}
+
+export function useInitVars() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dryRun: boolean) => api.initVars(dryRun),
+    onSuccess: (data) => {
+      if (data.applied) qc.invalidateQueries({ queryKey: queryKeys.vars });
+    },
+  });
+}

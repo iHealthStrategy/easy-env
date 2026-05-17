@@ -96,6 +96,15 @@ Web UI 主要通过这些端点取数据,语义更清晰且支持 GET(便于浏�
 
 走 `/api/tools/db.find` 等通用入口即可,不再为它们造资源式端点。
 
+#### vars(Phase 3)
+
+| Method | Path | 等价 tool | 说明 |
+|--------|------|-----------|------|
+| GET | `/api/vars` | vars.list | 返回 `{ projectName, variables: { <name>: { value, source } } }` |
+| PUT | `/api/vars/:name` | vars.set | Body `{ value }`,只接受 `easy-env.json#variables` 已声明的名字 |
+| DELETE | `/api/vars/:name` | vars.unset | 清值 |
+| POST | `/api/vars/init?dryRun=1` | vars.init | 默认 dryRun;`?dryRun=0` 时合并写入 `easy-env.json#variables` |
+
 ### 4. 流式数据(Phase 2+)
 
 预留 SSE/WebSocket:

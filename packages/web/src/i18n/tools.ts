@@ -31,6 +31,14 @@ export const TOOL_DESCRIPTIONS_ZH: Record<string, string> = {
     '按 id 比对两个 snapshot,返回结构化的多后端 diff。可配噪声策略(忽略时间戳字段、Redis TTL 漂移等)。',
   'scenario.replay':
     '端到端跑一个场景:执行前置条件 → 拍 BEFORE 快照 → 触发动作 → 等待静止 → 拍 AFTER 快照 → 计算 diff → 持久化整个 run artifact。',
+  'vars.list':
+    '返回本项目所有环境变量的当前视图,每条带 source(user / container / unset)。AI 启动子进程前调用,把结果 spread 到子进程 env 即可。',
+  'vars.set':
+    '为某个用户态变量写值(必须先在 easy-env.json#variables 声明)。容器自动注入的名字(MONGO_URL 等)拒绝写入。',
+  'vars.unset':
+    '清除某个变量的用户态值,下一次 vars.list 该项变为 source: unset。声明不被删除。',
+  'vars.init':
+    '扫描项目(.env / docker-compose / 源码中的 process.env.X)产出变量名提议。dryRun:true 仅返回提议,dryRun:false 把新名合并写回 easy-env.json#variables。',
 };
 
 export function describeTool(name: string, fallback: string): string {

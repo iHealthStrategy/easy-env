@@ -7,6 +7,43 @@ import { buildContext } from '../core/context.js';
 import { buildApp, webDistAvailable } from './server.js';
 import { daemonHost, daemonPort } from './config.js';
 import { writePidFile, deletePidFile, deletePidFileSync, readPidFile, isProcessAlive } from './pidfile.js';
+import { dockerRemoveByEnvId, dockerStateForEnv } from '../core/containers.js';
+import type { EnvRegistry } from '../store/envRegistry.js';
+
+/**
+ * Reconcile registry state with reality at daemon startup. Every env in
+ * the registry belongs to a previous daemon process that has now died
+ * (we know this because PID-file check enforces single-daemon — see main).
+ * Their containers are orphans regardless of docker state: if Exited or
+ * Created, obvious zombies; if still Up, they've outlived their owning
+ * easy-env session and serve no live env reference any more.
+ *
+ * Sweep them all, both at the docker level and the registry level, so
+ * the daemon always starts from a clean slate.
+ */
+async function reconcileRegistry(registry: EnvRegistry): Promise<{ swept: number; containersRemoved: number }> {
+  const envs = await registry.list();
+  let swept = 0;
+  let containersRemoved = 0;
+  for (const env of envs) {
+    const states = await dockerStateForEnv(env.envId).catch(() => []);
+    const removed = await dockerRemoveByEnvId(env.envId).catch(() => []);
+    containersRemoved += removed.length;
+    await registry.delete(env.envId).catch(() => undefined);
+    if (states.length > 0 || removed.length > 0 || env.status !== 'destroyed') swept += 1;
+  }
+  return { swept, containersRemoved };
+}
+
+/**
+ * Drain: stop and remove all containers for envs in the registry. Called
+ * during graceful shutdown so SIGTERM doesn't leave running containers
+ * behind without a matching live easy-env process.
+ */
+async function drainRegistry(registry: EnvRegistry): Promise<void> {
+  const envs = await registry.list();
+  await Promise.allSettled(envs.map((e) => dockerRemoveByEnvId(e.envId)));
+}
 
 async function main(): Promise<void> {
   const existing = await readPidFile();
@@ -21,6 +58,13 @@ async function main(): Promise<void> {
 
   const ctx = buildContext(FsStore.default());
   const startedAt = Date.now();
+
+  // Sweep zombies from any previous daemon run before we start serving.
+  const { swept, containersRemoved } = await reconcileRegistry(ctx.registry);
+  if (swept > 0 || containersRemoved > 0) {
+    console.log(`[easy-env-daemon] reconciled ${swept} stale env(s), removed ${containersRemoved} container(s)`);
+  }
+
   const app = buildApp(ctx, startedAt);
 
   const host = daemonHost();
@@ -40,6 +84,9 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     console.log(`[easy-env-daemon] received ${signal}, shutting down`);
     server.close();
+    await drainRegistry(ctx.registry).catch((e) => {
+      console.error('[easy-env-daemon] drain failed (non-fatal):', e instanceof Error ? e.message : e);
+    });
     await deletePidFile();
     process.exit(0);
   };

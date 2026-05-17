@@ -120,3 +120,32 @@ export interface ActivityResponse {
 export interface ApiError {
   error: { code: string; message: string; details?: unknown };
 }
+
+// ── vars ───────────────────────────────────────────────────────────────────
+export type VarValue = string | number | boolean | null;
+export type VarSource = 'user' | 'container' | 'unset';
+
+export interface VarEntry {
+  value: VarValue;
+  source: VarSource;
+}
+
+export interface VarsListResponse {
+  projectName: string | null;
+  variables: Record<string, VarEntry>;
+}
+
+export interface VarsInitCandidate {
+  name: string;
+  evidence: string[];
+}
+
+export interface VarsInitResponse {
+  applied: boolean;
+  existing: string[];
+  additions: VarsInitCandidate[];
+  unchanged: VarsInitCandidate[];
+  configPath: string;
+  projectName: string | null;
+  mergedVariables?: string[];
+}

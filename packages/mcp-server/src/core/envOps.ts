@@ -70,10 +70,10 @@ export async function envUp(
 
     const mongo = opts.withoutMongo
       ? undefined
-      : await spawnMongo({ envId, image: mongoImage, labels });
+      : await spawnMongo({ envId, image: mongoImage, labels, hostPort: cfg.backends.mongo?.port });
     const redis = opts.withoutRedis
       ? undefined
-      : await spawnRedis({ envId, image: redisImage, labels });
+      : await spawnRedis({ envId, image: redisImage, labels, hostPort: cfg.backends.redis?.port });
 
     const ready: ManagedEnv = {
       ...initial,

@@ -22,6 +22,19 @@ async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
   }
 }
 
+async function withTempProject<T>(fn: (projectDir: string) => Promise<T>): Promise<T> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'easy-env-project-'));
+  const prev = process.env.EASY_ENV_CONFIG;
+  process.env.EASY_ENV_CONFIG = path.join(dir, 'easy-env.json');
+  try {
+    return await fn(dir);
+  } finally {
+    if (prev !== undefined) process.env.EASY_ENV_CONFIG = prev;
+    else delete process.env.EASY_ENV_CONFIG;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+
 function startServer(): Promise<{ baseUrl: string; close: () => Promise<void> }> {
   const ctx = buildContext(FsStore.default());
   const app = buildApp(ctx, Date.now());
@@ -41,7 +54,29 @@ async function expect(cond: boolean, msg: string): Promise<void> {
   if (!cond) throw new Error(`assertion failed: ${msg}`);
 }
 
+async function testComposeMongoUrl(): Promise<void> {
+  const { composeMongoUrl } = await import('../src/core/vars.js');
+  await expect(
+    composeMongoUrl('mongodb://localhost:32799', 'blog') === 'mongodb://localhost:32799/blog',
+    'bare URL should append dbName',
+  );
+  await expect(
+    composeMongoUrl('mongodb://localhost:32799/', 'blog') === 'mongodb://localhost:32799/blog',
+    'trailing slash should append dbName cleanly',
+  );
+  await expect(
+    composeMongoUrl('mongodb://localhost:32799/existing', 'blog') === 'mongodb://localhost:32799/existing',
+    'preserve existing path',
+  );
+  await expect(
+    composeMongoUrl('mongodb://localhost:32799', undefined) === 'mongodb://localhost:32799',
+    'no dbName → unchanged',
+  );
+  console.log('  ✓ composeMongoUrl: bare / trailing-slash / preserve / no-dbName');
+}
+
 async function main(): Promise<void> {
+  await testComposeMongoUrl();
   await withTempHome(async () => {
     const { baseUrl, close } = await startServer();
     try {
@@ -56,8 +91,8 @@ async function main(): Promise<void> {
       // tool listing
       {
         const r = await fetch(`${baseUrl}/api/tools`).then((r) => r.json()) as { tools: Array<{ name: string }> };
-        await expect(r.tools.length === 15, `expected 15 tools, got ${r.tools.length}`);
-        console.log('  ✓ GET /api/tools (15 tools)');
+        await expect(r.tools.length === 20, `expected 20 tools, got ${r.tools.length}`);
+        console.log('  ✓ GET /api/tools (20 tools)');
       }
 
       // env.config via generic dispatch
@@ -127,7 +162,113 @@ async function main(): Promise<void> {
       await close();
     }
   });
+  await testVarsFlow();
   console.log('DAEMON API OK');
+}
+
+async function testVarsFlow(): Promise<void> {
+  await withTempHome(async () => {
+    await withTempProject(async (projectDir) => {
+      // Set up a project with name + initial variables + sources to scan.
+      await fs.writeFile(
+        path.join(projectDir, 'easy-env.json'),
+        JSON.stringify({ version: 1, name: 'test-proj', variables: ['API_PREFIX'] }, null, 2),
+      );
+      await fs.writeFile(path.join(projectDir, '.env.example'), 'API_PREFIX=/v1\nDISCOVERED=1\n');
+      await fs.mkdir(path.join(projectDir, 'src'));
+      await fs.writeFile(
+        path.join(projectDir, 'src/app.ts'),
+        'const x = process.env.CODE_VAR; const y = process.env.MONGO_URL;',
+      );
+
+      const { baseUrl, close } = await startServer();
+      try {
+        // initial list — only declared API_PREFIX as unset
+        {
+          const r = await fetch(`${baseUrl}/api/vars`).then((r) => r.json()) as { projectName: string; variables: Record<string, { source: string }> };
+          await expect(r.projectName === 'test-proj', 'project name mismatch');
+          await expect(r.variables.API_PREFIX?.source === 'unset', 'API_PREFIX should be unset');
+          await expect(!('DISCOVERED' in r.variables), 'undeclared DISCOVERED should not appear yet');
+          console.log('  ✓ GET /api/vars (declared only, unset)');
+        }
+
+        // set undeclared name → rejected
+        {
+          const r = await fetch(`${baseUrl}/api/vars/UNDECLARED`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ value: 'x' }),
+          });
+          await expect(!r.ok, 'setting undeclared name should fail');
+          console.log('  ✓ PUT /api/vars/:undeclared → rejected');
+        }
+
+        // set declared name → ok
+        {
+          const r = await fetch(`${baseUrl}/api/vars/API_PREFIX`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ value: '/api/v2' }),
+          });
+          await expect(r.ok, `set should succeed, got ${r.status}`);
+          const body = await r.json() as { value: string; source: string };
+          await expect(body.value === '/api/v2' && body.source === 'user', 'set return shape wrong');
+          console.log('  ✓ PUT /api/vars/API_PREFIX');
+        }
+
+        // list reflects set
+        {
+          const r = await fetch(`${baseUrl}/api/vars`).then((r) => r.json()) as { variables: Record<string, { value: unknown; source: string }> };
+          await expect(r.variables.API_PREFIX.value === '/api/v2', 'value not persisted');
+          await expect(r.variables.API_PREFIX.source === 'user', 'source should be user');
+          console.log('  ✓ GET /api/vars reflects set');
+        }
+
+        // init dryRun — should find DISCOVERED + CODE_VAR, NOT MONGO_URL
+        {
+          const r = await fetch(`${baseUrl}/api/vars/init?dryRun=1`, { method: 'POST' }).then((r) => r.json()) as {
+            applied: boolean;
+            additions: Array<{ name: string }>;
+          };
+          await expect(r.applied === false, 'dryRun should not apply');
+          const names = r.additions.map((a) => a.name).sort();
+          await expect(names.includes('DISCOVERED'), 'DISCOVERED should be proposed');
+          await expect(names.includes('CODE_VAR'), 'CODE_VAR should be proposed');
+          await expect(!names.includes('MONGO_URL'), 'MONGO_URL is container-managed; must be filtered');
+          await expect(!names.includes('API_PREFIX'), 'API_PREFIX already declared; not an addition');
+          console.log('  ✓ POST /api/vars/init?dryRun=1 (DISCOVERED + CODE_VAR, MONGO_URL filtered)');
+        }
+
+        // init apply — writes back to easy-env.json
+        {
+          const r = await fetch(`${baseUrl}/api/vars/init?dryRun=0`, { method: 'POST' });
+          await expect(r.ok, `apply failed: ${r.status}`);
+          const cfg = JSON.parse(await fs.readFile(path.join(projectDir, 'easy-env.json'), 'utf8')) as { variables: string[] };
+          await expect(cfg.variables.includes('DISCOVERED'), 'DISCOVERED not written to config');
+          await expect(cfg.variables.includes('CODE_VAR'), 'CODE_VAR not written to config');
+          console.log('  ✓ POST /api/vars/init?dryRun=0 (writes easy-env.json)');
+        }
+
+        // list after apply — newly declared names visible as unset
+        {
+          const r = await fetch(`${baseUrl}/api/vars`).then((r) => r.json()) as { variables: Record<string, { source: string }> };
+          await expect(r.variables.DISCOVERED?.source === 'unset', 'DISCOVERED should be unset after init');
+          console.log('  ✓ GET /api/vars after init shows newly declared');
+        }
+
+        // unset
+        {
+          const r = await fetch(`${baseUrl}/api/vars/API_PREFIX`, { method: 'DELETE' });
+          await expect(r.ok, 'unset failed');
+          const list = await fetch(`${baseUrl}/api/vars`).then((r) => r.json()) as { variables: Record<string, { source: string }> };
+          await expect(list.variables.API_PREFIX.source === 'unset', 'API_PREFIX should be unset again');
+          console.log('  ✓ DELETE /api/vars/API_PREFIX');
+        }
+      } finally {
+        await close();
+      }
+    });
+  });
 }
 
 main().catch((e) => {

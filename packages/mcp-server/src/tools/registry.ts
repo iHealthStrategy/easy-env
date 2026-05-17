@@ -22,6 +22,13 @@ import {
   runDbUpdate, DbUpdateInput, dbUpdateToolDescription,
   runDbDelete, DbDeleteInput, dbDeleteToolDescription,
 } from './db.js';
+import {
+  runVarsList, VarsListInput, varsListToolDescription,
+  runVarsSet, VarsSetInput, varsSetToolDescription,
+  runVarsUnset, VarsUnsetInput, varsUnsetToolDescription,
+} from './vars.js';
+import { runVarsInit, VarsInitInput, varsInitToolDescription } from './varsInit.js';
+import { runEnvInit, EnvInitInput, envInitToolDescription } from './envInit.js';
 
 export interface ToolEntry {
   name: string;
@@ -33,6 +40,7 @@ export interface ToolEntry {
 export const TOOL_REGISTRY: ReadonlyArray<ToolEntry> = [
   // env config / lifecycle
   { name: envConfigToolDescription.name, description: envConfigToolDescription.description, inputSchema: EnvConfigInput, run: (a) => runEnvConfig(EnvConfigInput.parse(a)) },
+  { name: envInitToolDescription.name, description: envInitToolDescription.description, inputSchema: EnvInitInput, run: (a, c) => runEnvInit(EnvInitInput.parse(a), c) },
   { name: envUpToolDescription.name, description: envUpToolDescription.description, inputSchema: EnvUpInput, run: (a, c) => runEnvUp(EnvUpInput.parse(a), c) },
   { name: envListToolDescription.name, description: envListToolDescription.description, inputSchema: EnvListInput, run: (a, c) => runEnvList(EnvListInput.parse(a), c) },
   { name: envStatusToolDescription.name, description: envStatusToolDescription.description, inputSchema: EnvStatusInput, run: (a, c) => runEnvStatus(EnvStatusInput.parse(a), c) },
@@ -45,6 +53,12 @@ export const TOOL_REGISTRY: ReadonlyArray<ToolEntry> = [
   { name: dbInsertToolDescription.name, description: dbInsertToolDescription.description, inputSchema: DbInsertInput, run: (a, c) => runDbInsert(DbInsertInput.parse(a), c) },
   { name: dbUpdateToolDescription.name, description: dbUpdateToolDescription.description, inputSchema: DbUpdateInput, run: (a, c) => runDbUpdate(DbUpdateInput.parse(a), c) },
   { name: dbDeleteToolDescription.name, description: dbDeleteToolDescription.description, inputSchema: DbDeleteInput, run: (a, c) => runDbDelete(DbDeleteInput.parse(a), c) },
+
+  // variables
+  { name: varsListToolDescription.name, description: varsListToolDescription.description, inputSchema: VarsListInput, run: (a, c) => runVarsList(VarsListInput.parse(a), c) },
+  { name: varsSetToolDescription.name, description: varsSetToolDescription.description, inputSchema: VarsSetInput, run: (a, c) => runVarsSet(VarsSetInput.parse(a), c) },
+  { name: varsUnsetToolDescription.name, description: varsUnsetToolDescription.description, inputSchema: VarsUnsetInput, run: (a, c) => runVarsUnset(VarsUnsetInput.parse(a), c) },
+  { name: varsInitToolDescription.name, description: varsInitToolDescription.description, inputSchema: VarsInitInput, run: (a, c) => runVarsInit(VarsInitInput.parse(a), c) },
 
   // state + scenario
   { name: stateCaptureToolDescription.name, description: stateCaptureToolDescription.description, inputSchema: StateCaptureInput, run: (a, c) => runStateCapture(StateCaptureInput.parse(a), c) },

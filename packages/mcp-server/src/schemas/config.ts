@@ -14,11 +14,16 @@ export const MongoBackendConfig = z.object({
   // when omitted so the legacy PoC paths still work out of the box.
   url: z.string().url().optional(),
   dbName: z.string().min(1).optional(),
+  // Fixed host port for env.up. When set, the spawned container binds to
+  // this host port so MONGO_URL stays stable across env.up cycles; user
+  // variables can safely hardcode it. Omitted → dynamic port (legacy).
+  port: z.number().int().min(1).max(65535).optional(),
 });
 
 export const RedisBackendConfig = z.object({
   image: z.string().min(1).optional(),
   url: z.string().url().optional(),
+  port: z.number().int().min(1).max(65535).optional(),
 });
 
 export const BackendsConfig = z.object({
@@ -44,11 +49,24 @@ export const DefaultsConfig = z.object({
   }).optional(),
 });
 
+// Project name doubles as the primary key for the per-project values
+// store (`~/.easy-env/projects/{name}/vars.json`). Optional for backward
+// compatibility — vars features are disabled when missing.
+export const ProjectName = z
+  .string()
+  .min(1)
+  .regex(/^[a-zA-Z0-9._-]+$/, 'name must match [a-zA-Z0-9._-]+');
+
 export const EasyEnvConfig = z.object({
   version: z.literal(1).default(1),
+  name: ProjectName.optional(),
   backends: BackendsConfig.default({}),
   app: AppConfig.default({}),
   defaults: DefaultsConfig.default({}),
+  // Declared variable names this project needs. Values are not stored
+  // here — they live in ~/.easy-env/projects/{name}/vars.json and are
+  // managed through the Web UI.
+  variables: z.array(z.string().min(1)).default([]),
 });
 
 export type EasyEnvConfig = z.infer<typeof EasyEnvConfig>;

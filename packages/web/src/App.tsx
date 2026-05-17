@@ -6,6 +6,7 @@ import { SnapshotDetail } from './pages/SnapshotDetail';
 import { DiffsList } from './pages/DiffsList';
 import { DiffDetail } from './pages/DiffDetail';
 import { McpService } from './pages/McpService';
+import { Variables } from './pages/Variables';
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
         <h1>easy-env</h1>
         <nav>
           <NavLink to="/" end>Environments</NavLink>
+          <NavLink to="/vars">Variables</NavLink>
           <NavLink to="/snapshots">Snapshots</NavLink>
           <NavLink to="/diffs">Diffs</NavLink>
           <NavLink to="/mcp">MCP Service</NavLink>
@@ -28,6 +30,7 @@ export default function App() {
           <Route path="/diffs" element={<DiffsList />} />
           <Route path="/diffs/:id" element={<DiffDetail />} />
           <Route path="/mcp" element={<McpService />} />
+          <Route path="/vars" element={<Variables />} />
         </Routes>
       </main>
     </div>

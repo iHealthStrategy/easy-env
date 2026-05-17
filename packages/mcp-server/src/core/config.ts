@@ -91,3 +91,22 @@ export function resolvedRedisUrl(cfg: EasyEnvConfig): string {
 export function resolvedDbName(cfg: EasyEnvConfig): string {
   return cfg.backends.mongo?.dbName ?? FALLBACK_DB_NAME;
 }
+
+/**
+ * Persist a config patch back to the discovered easy-env.json. Used by
+ * vars.init when applying its proposal. Throws if no config file exists
+ * (we don't want to silently create one — that's a user decision).
+ */
+export function saveConfig(patch: Partial<EasyEnvConfig>, startDir: string = process.cwd()): string {
+  const configPath = findConfigPath(startDir);
+  if (!configPath) {
+    throw new Error(
+      'no easy-env.json found in this project. Create one before calling save-mutating tools.',
+    );
+  }
+  const raw = fs.readFileSync(configPath, 'utf8');
+  const current: Record<string, unknown> = raw ? JSON.parse(raw) : {};
+  const merged = { ...current, ...patch };
+  fs.writeFileSync(configPath, JSON.stringify(merged, null, 2) + '\n');
+  return configPath;
+}

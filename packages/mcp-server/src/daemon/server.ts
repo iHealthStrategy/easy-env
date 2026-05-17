@@ -150,6 +150,50 @@ export function buildApp(ctx: ToolContext, startedAt: number): Hono {
     }
   });
 
+  // ── vars resource endpoints (Web UI) ──────────────────────────────────────
+  app.get('/api/vars', async (c) => {
+    try {
+      return c.json(await invokeTool('vars.list', {}));
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  app.put('/api/vars/:name', async (c) => {
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { value?: unknown };
+      return c.json(await invokeTool('vars.set', { name: c.req.param('name'), value: body.value ?? null }));
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  app.delete('/api/vars/:name', async (c) => {
+    try {
+      return c.json(await invokeTool('vars.unset', { name: c.req.param('name') }));
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  app.post('/api/vars/init', async (c) => {
+    try {
+      const dryRun = c.req.query('dryRun') !== '0' && c.req.query('dryRun') !== 'false';
+      return c.json(await invokeTool('vars.init', { dryRun }));
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  app.post('/api/env/init', async (c) => {
+    try {
+      const dryRun = c.req.query('dryRun') !== '0' && c.req.query('dryRun') !== 'false';
+      return c.json(await invokeTool('env.init', { dryRun }));
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
   // ── static SPA (after API routes, so /api/* never falls through to it) ───
   const webDist = resolveWebDist();
   if (webDist) {

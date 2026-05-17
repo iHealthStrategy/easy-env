@@ -11,6 +11,9 @@ import type {
   HealthResponse,
   ToolsListResponse,
   ActivityResponse,
+  VarsListResponse,
+  VarsInitResponse,
+  VarValue,
   ApiError,
 } from './types';
 
@@ -57,4 +60,14 @@ export const api = {
   getSnapshot: (id: string) => request<SnapshotDetailResponse>(`/api/snapshots/${encodeURIComponent(id)}`),
   listDiffs: () => request<DiffsListResponse>('/api/diffs'),
   getDiff: (id: string) => request<DiffDetailResponse>(`/api/diffs/${encodeURIComponent(id)}`),
+  listVars: () => request<VarsListResponse>('/api/vars'),
+  setVar: (name: string, value: VarValue) =>
+    request<{ name: string; value: VarValue; source: 'user' }>(`/api/vars/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+  unsetVar: (name: string) =>
+    request<{ name: string; cleared: true }>(`/api/vars/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  initVars: (dryRun: boolean) =>
+    request<VarsInitResponse>(`/api/vars/init?dryRun=${dryRun ? '1' : '0'}`, { method: 'POST' }),
 };

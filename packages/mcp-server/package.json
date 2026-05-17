@@ -6,8 +6,15 @@
   "type": "module",
   "bin": {
     "easy-env-mcp": "./bin/easy-env-mcp.mjs",
-    "easy-env-daemon": "./bin/easy-env-daemon.mjs"
+    "easy-env-daemon": "./bin/easy-env-daemon.mjs",
+    "easy-env-install-skill": "./bin/easy-env-install-skill.mjs"
   },
+  "files": [
+    "bin",
+    "dist",
+    "skills",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/src/server.js",
@@ -22,12 +29,14 @@
     "@modelcontextprotocol/sdk": "^1.0.4",
     "hono": "^4.6.14",
     "ioredis": "^5.4.1",
+    "js-yaml": "^4.1.0",
     "mongodb": "^6.5.0",
     "testcontainers": "^11.14.0",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.12.7",
     "typescript": "^5.4.5"
   }

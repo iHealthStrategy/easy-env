@@ -209,9 +209,10 @@ npm run web                # Vite dev server on :5173, proxies /api → :7193
 The MCP server also auto-starts the daemon on first call, so an agent
 session and a browser tab can share the same daemon process.
 
-### Hook into your AI agent
+### Hook into your AI agent (Claude Code)
 
-For Claude Code, Cursor, or any stdio-MCP-capable client:
+**Minimum setup** — just register the MCP server. Add to your Claude
+Code config (`~/.claude.json` or project's `.mcp.json`):
 
 ```json
 {
@@ -224,13 +225,33 @@ For Claude Code, Cursor, or any stdio-MCP-capable client:
 }
 ```
 
-The agent gets all 15 tools (env lifecycle + data ops + state/scenario)
-that it can compose to verify its own code changes. The MCP server is a
-thin client — on first call it auto-spawns the long-running daemon, which
-owns the actual containers and state. See
-[`packages/mcp-server/README.md`](packages/mcp-server/README.md) for tool
-argument schemas and [`docs/DAEMON_API.md`](docs/DAEMON_API.md) for the
-daemon API contract.
+The agent gets 20 tools (env lifecycle / data ops / variables /
+state-and-scenario). On first call the MCP server auto-spawns the
+long-running daemon, which owns containers and state.
+
+**Recommended:** install the bundled skill so the agent reliably walks
+the new-project bootstrap flow (env.init → vars.init → fill values →
+env.up → start project) in the right order:
+
+```bash
+node /absolute/path/to/easy-env/packages/mcp-server/bin/easy-env-install-skill.mjs
+```
+
+This copies `easy-env-bootstrap.md` to `~/.claude/skills/`. Restart
+Claude Code, then trigger it with any of:
+
+- "用 easy-env 跑起这个项目"
+- "用 easy-env 配好这个项目的环境"
+- "set up this project with easy-env"
+- "initialize easy-env for this project"
+
+Without the skill, the tools all work but the agent has to discover the
+workflow on its own — it's likely to skip `env.init` and `vars.init`
+and try to start the project before variables are fully wired up.
+
+See [`packages/mcp-server/README.md`](packages/mcp-server/README.md) for
+tool argument schemas and [`docs/DAEMON_API.md`](docs/DAEMON_API.md)
+for the daemon API contract.
 
 ## Replaying the PoC
 

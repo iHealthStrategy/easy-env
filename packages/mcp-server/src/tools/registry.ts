@@ -29,6 +29,7 @@ import {
 import { runVarsDeclare, VarsDeclareInput, varsDeclareToolDescription } from './varsDeclare.js';
 import { runEnvInit, EnvInitInput, envInitToolDescription } from './envInit.js';
 import { runProjectDelete, ProjectDeleteInput, projectDeleteToolDescription } from './projectDelete.js';
+import { runStateSeed, StateSeedInput, stateSeedToolDescription } from './stateSeed.js';
 
 export interface ToolEntry {
   name: string;
@@ -61,6 +62,7 @@ export const TOOL_REGISTRY: ReadonlyArray<ToolEntry> = [
   { name: projectDeleteToolDescription.name, description: projectDeleteToolDescription.description, inputSchema: ProjectDeleteInput, run: (a, c) => runProjectDelete(ProjectDeleteInput.parse(a), c) },
 
   // state + scenario
+  { name: stateSeedToolDescription.name, description: stateSeedToolDescription.description, inputSchema: StateSeedInput, run: (a, c) => runStateSeed(StateSeedInput.parse(a), c) },
   { name: stateCaptureToolDescription.name, description: stateCaptureToolDescription.description, inputSchema: StateCaptureInput, run: (a, c) => runStateCapture(StateCaptureInput.parse(a), c) },
   { name: scenarioSettleToolDescription.name, description: scenarioSettleToolDescription.description, inputSchema: ScenarioSettleInput, run: (a, c) => runScenarioSettle(ScenarioSettleInput.parse(a), c) },
   { name: diffCompareToolDescription.name, description: diffCompareToolDescription.description, inputSchema: DiffCompareInput, run: (a, c) => runDiffCompare(DiffCompareInput.parse(a), c) },

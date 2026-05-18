@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SeedConfig } from './seed.js';
 
 // easy-env.json — the consumer-project-level config file. Place it at the
 // root of the project you want easy-env to inspect.
@@ -87,6 +88,10 @@ export const EasyEnvConfig = z.object({
   // here — they live in ~/.easy-env/projects/{name}/vars.json and are
   // managed through the Web UI.
   variables: z.array(z.string().min(1)).default([]),
+  // Optional declarative seed config. JSON fixtures (declarative) +
+  // scripts (imperative) — both arrays of paths relative to projectRoot,
+  // executed by state.seed in order.
+  seed: SeedConfig.default({ json: [], scripts: [] }),
 });
 
 export type EasyEnvConfig = z.infer<typeof EasyEnvConfig>;

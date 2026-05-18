@@ -23,6 +23,8 @@ export const TOOL_DESCRIPTIONS_ZH: Record<string, string> = {
     '更新受管环境中的文档。`update` 必须是 Mongo 更新算子(如 { $set: {...} })。',
   'db.delete':
     '删除受管环境中的文档。multi:true 时删除所有匹配项,否则只删一条。',
+  'state.seed':
+    '执行项目预先声明的 seed 文件(env.init 时通过 seed.json / seed.scripts 注册)。AI 只需传 projectName + projectRoot,守护进程读路径、解析 JSON、用 node 跑脚本。JSON 先于脚本运行;reset:true 会先做一次 env.reset(快路径:dropDatabase + flushdb)再灌数据。Mongo 默认 replace 模式(drop+insertMany),也支持 upsert / insert;Rabbit 通过 Management API 幂等声明 exchanges/queues/bindings。',
   'state.capture':
     '跨配置的后端(Mongo collections + Redis keys)拍一次快照,持久化为 snapshotId 供 diff.compare 使用。',
   'scenario.settle':

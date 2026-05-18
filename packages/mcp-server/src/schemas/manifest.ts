@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SeedConfig } from './seed.js';
 
 // daemon-side manifest for a project. Lives at
 // ~/.easy-env/projects/<name>/manifest.json and is the daemon's
@@ -49,6 +50,10 @@ export const ProjectManifest = z.object({
   projectRoot: z.string().min(1),
   backends: BackendsManifest.default({}),
   variables: z.array(z.string().min(1).regex(/^[A-Z_][A-Z0-9_]*$/)).default([]),
+  // Project-level seed paths (resolved against projectRoot at run time).
+  // The daemon reads these files during state.seed; it never scans
+  // projectRoot for other content.
+  seed: SeedConfig.default({ json: [], scripts: [] }),
 });
 
 export type ProjectManifest = z.infer<typeof ProjectManifest>;

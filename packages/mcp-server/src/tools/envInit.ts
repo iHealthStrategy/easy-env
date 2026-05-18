@@ -38,6 +38,15 @@ const RabbitBackendPatch = z.object({
   password: z.string().min(1).optional(),
 });
 
+// Seed paths submitted via env.init. Each path is relative to projectRoot.
+// The daemon reads these files when state.seed is called — this is the
+// one narrow exception to "daemon never reads projectRoot". JSON files are
+// parsed against JsonSeedSpec; scripts are spawned with node.
+const SeedPatch = z.object({
+  json: z.array(z.string().min(1)).default([]),
+  scripts: z.array(z.string().min(1)).default([]),
+});
+
 export const EnvInitInput = z.object({
   projectName: ProjectName,
   // Used solely to namespace same-named projects. The daemon stores it
@@ -47,6 +56,11 @@ export const EnvInitInput = z.object({
   mongo: MongoBackendPatch.optional(),
   redis: RedisBackendPatch.optional(),
   rabbit: RabbitBackendPatch.optional(),
+  /** Seed file paths to register. When omitted the manifest's existing
+   *  seed config is preserved; when provided, it REPLACES the existing
+   *  config (so the manifest stays in sync with easy-env.json). Pass
+   *  empty arrays to clear. */
+  seed: SeedPatch.optional(),
 });
 
 export async function runEnvInit(input: z.infer<typeof EnvInitInput>, ctx: ToolContext) {
@@ -60,6 +74,10 @@ export async function runEnvInit(input: z.infer<typeof EnvInitInput>, ctx: ToolC
       redis: { ...(manifest.backends.redis ?? {}), ...(input.redis ?? {}) },
       rabbit: { ...(manifest.backends.rabbit ?? {}), ...(input.rabbit ?? {}) },
     },
+    // Seed REPLACES (not merges) on each call — the AI's easy-env.json is
+    // the source of truth; partial-update semantics would silently retain
+    // stale paths the user already deleted from the project's config.
+    seed: input.seed ?? manifest.seed,
   };
   // Drop empty backend entries to keep the manifest tidy.
   if (Object.keys(next.backends.mongo).length === 0) delete (next.backends as { mongo?: unknown }).mongo;
@@ -73,12 +91,13 @@ export async function runEnvInit(input: z.infer<typeof EnvInitInput>, ctx: ToolC
     projectRoot: next.projectRoot,
     backends: next.backends,
     variables: next.variables,
+    seed: next.seed,
   };
 }
 
 export const envInitToolDescription = {
   name: 'env.init',
   description:
-    "Register or update this project's backend container configuration in the daemon manifest. Pass { projectName, projectRoot, mongo?: { image?, port?, dbName?, replicaSet? }, redis?: { image?, port? }, rabbit?: { image?, port?, managementPort?, user?, password? } }. The AI is the source of truth — it reads the project's easy-env.json and source, then submits the resolved values here. The daemon never opens any file inside projectRoot; that path is recorded only to detect same-name collisions. Subsequent env.up reads images and host ports from this manifest so the resolved host:port stays stable across cycles. Rabbit is opt-in (only spawns when declared). Setting mongo.replicaSet (e.g. \"rs0\") boots mongod with --replSet + rs.initiate (required for change streams / transactions); resolved mongoUrl gains ?replicaSet=…&directConnection=true. mongo.dbName matters only for env.reset and the vars.list.containers.dbName hint.",
+    "Register or update this project's backend container configuration in the daemon manifest. Pass { projectName, projectRoot, mongo?: { image?, port?, dbName?, replicaSet? }, redis?: { image?, port? }, rabbit?: { image?, port?, managementPort?, user?, password? }, seed?: { json?: string[], scripts?: string[] } }. The AI is the source of truth — it reads the project's easy-env.json and source, then submits the resolved values here. The daemon never opens any file inside projectRoot, except for the explicit seed paths declared here (which state.seed later reads). seed paths are relative to projectRoot; submitting seed REPLACES the existing config (don't omit to silently retain stale paths). Rabbit is opt-in (only spawns when declared). Setting mongo.replicaSet (e.g. \"rs0\") boots mongod with --replSet + rs.initiate (required for change streams / transactions); resolved mongoUrl gains ?replicaSet=…&directConnection=true.",
   inputSchema: EnvInitInput,
 };

@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { MongoClient } from 'mongodb';
+import { EJSON } from 'bson';
 import Redis from 'ioredis';
 import type { ToolContext } from './context.js';
 import type { ManagedEnv } from '../schemas/env.js';
@@ -302,7 +303,23 @@ export async function runSeedScript(opts: {
 
 // ── Public helper: read JSON seed from disk ─────────────────────────────────
 
+/**
+ * Read a JSON seed file via EJSON, so seed authors can embed BSON types
+ * using the canonical extended-JSON form:
+ *
+ *   { "_id": { "$oid": "65a1b2c3d4e5f6a7b8c9d0e1" } }   → real ObjectId
+ *   { "createdAt": { "$date": "2026-05-18T00:00:00Z" } } → real Date
+ *   { "amount": { "$numberLong": "123456789012" } }      → Long
+ *   { "rate": { "$numberDecimal": "12.345" } }           → Decimal128
+ *
+ * Plain JSON (no $-prefixed keys) parses just fine — relaxed mode is the
+ * default, so numbers stay as JS numbers, dates can be ISO strings, etc.
+ * This matters for Mongoose schemas with `Types.ObjectId` fields (e.g.
+ * cross-collection refs): inserting a string `_id` works but breaks the
+ * downstream `findById(<24-hex>)` cast — using `{ $oid: "…" }` here keeps
+ * the stored value a real BSON ObjectId.
+ */
 export async function readJsonSeedFile(absPath: string): Promise<unknown> {
   const raw = await readFile(absPath, 'utf8');
-  return JSON.parse(raw);
+  return EJSON.parse(raw, { relaxed: true });
 }

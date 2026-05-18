@@ -14,7 +14,9 @@ export interface ContainerHandle {
 export interface ResolvedUrls {
   mongoUrl?: string;
   redisUrl?: string;
-  dbName: string;
+  rabbitUrl?: string;
+  rabbitManagementUrl?: string;
+  dbName?: string;
   baseUrl?: string;
 }
 
@@ -27,6 +29,7 @@ export interface EnvListItem {
   images: {
     mongo: string | null;
     redis: string | null;
+    rabbit: string | null;
   };
 }
 
@@ -44,10 +47,12 @@ export interface EnvDetailResponse {
   health: {
     mongoReachable: boolean;
     redisReachable: boolean;
+    rabbitReachable?: boolean;
   };
   containers: {
     mongo: ContainerHandle | null;
     redis: ContainerHandle | null;
+    rabbit: ContainerHandle | null;
   };
   labels: Record<string, string>;
   error?: string;
@@ -132,8 +137,15 @@ export interface ProjectSummary {
   name: string;
   projectRoot: string;
   backends: {
-    mongo?: { image?: string; port?: number };
+    mongo?: { image?: string; port?: number; replicaSet?: string };
     redis?: { image?: string; port?: number };
+    rabbit?: {
+      image?: string;
+      port?: number;
+      managementPort?: number;
+      user?: string;
+      password?: string;
+    };
   };
   variableCount: number;
 }
@@ -159,9 +171,12 @@ export interface ContainersHandle {
   envId: string;
   mongoUrl?: string;
   redisUrl?: string;
-  dbName: string;
+  rabbitUrl?: string;
+  rabbitManagementUrl?: string;
+  dbName?: string;
   mongoHostPort?: number;
   redisHostPort?: number;
+  rabbitHostPort?: number;
 }
 
 export interface VarsListResponse {

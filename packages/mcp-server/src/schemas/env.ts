@@ -17,9 +17,13 @@ export const ManagedEnv = z.object({
   configHash: z.string(),
   mongo: ContainerHandle.optional(),
   redis: ContainerHandle.optional(),
+  rabbit: ContainerHandle.optional(),
   resolved: z.object({
     mongoUrl: z.string().optional(),
     redisUrl: z.string().optional(),
+    rabbitUrl: z.string().optional(),
+    // Optional management UI URL (RabbitMQ *-management image only).
+    rabbitManagementUrl: z.string().optional(),
     // Optional — only set when the project explicitly declares
     // backends.mongo.dbName in its easy-env.json. easy-env no longer
     // injects a fallback dbName; if the project wants /<dbname> in

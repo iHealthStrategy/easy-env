@@ -20,6 +20,9 @@ export const BackendUrls = z.object({
   mongoUrl: z.string().url().optional(),
   dbName: z.string().min(1).optional(),
   redisUrl: z.string().url().optional(),
+  // Surfaced so future capture/replay primitives can reach Rabbit; the
+  // current capture/diff tools only read mongo + redis.
+  rabbitUrl: z.string().url().optional(),
 });
 
 export const MongoDoc = z.record(z.string(), z.unknown());

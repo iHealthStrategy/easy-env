@@ -20,19 +20,25 @@ export function EnvDetail() {
         {(env) => (
           <>
             <div className="card">
-              <h3>Status</h3>
+              <h3>状态</h3>
               <dl className="dl">
-                <dt>Status</dt>
-                <dd><span className={`badge ${env.status}`}>{env.status}</span></dd>
-                <dt>Created</dt>
+                <dt>状态</dt>
+                <dd><span className={`badge ${env.status}`}>{envStatusLabel(env.status)}</span></dd>
+                <dt>创建时间</dt>
                 <dd>{fmtTime(env.createdAt)}</dd>
-                <dt>Mongo reachable</dt>
-                <dd>{env.health.mongoReachable ? 'yes' : 'no'}</dd>
-                <dt>Redis reachable</dt>
-                <dd>{env.health.redisReachable ? 'yes' : 'no'}</dd>
+                <dt>Mongo 可达</dt>
+                <dd>{env.health.mongoReachable ? '是' : '否'}</dd>
+                <dt>Redis 可达</dt>
+                <dd>{env.health.redisReachable ? '是' : '否'}</dd>
+                {env.containers.rabbit && (
+                  <>
+                    <dt>Rabbit 可达</dt>
+                    <dd>{env.health.rabbitReachable ? '是' : '否'}</dd>
+                  </>
+                )}
                 {env.error && (
                   <>
-                    <dt>Error</dt>
+                    <dt>错误</dt>
                     <dd><code>{env.error}</code></dd>
                   </>
                 )}
@@ -54,8 +60,24 @@ export function EnvDetail() {
                     <dd><code>{env.resolved.redisUrl}</code></dd>
                   </>
                 )}
-                <dt>dbName</dt>
-                <dd><code>{env.resolved.dbName}</code></dd>
+                {env.resolved.rabbitUrl && (
+                  <>
+                    <dt>rabbitUrl</dt>
+                    <dd><code>{env.resolved.rabbitUrl}</code></dd>
+                  </>
+                )}
+                {env.resolved.rabbitManagementUrl && (
+                  <>
+                    <dt>rabbitManagementUrl</dt>
+                    <dd><a href={env.resolved.rabbitManagementUrl} target="_blank" rel="noreferrer"><code>{env.resolved.rabbitManagementUrl}</code></a></dd>
+                  </>
+                )}
+                {env.resolved.dbName && (
+                  <>
+                    <dt>dbName</dt>
+                    <dd><code>{env.resolved.dbName}</code></dd>
+                  </>
+                )}
                 {env.resolved.baseUrl && (
                   <>
                     <dt>baseUrl</dt>
@@ -67,10 +89,11 @@ export function EnvDetail() {
 
             <ContainerCard title="Mongo" handle={env.containers.mongo} />
             <ContainerCard title="Redis" handle={env.containers.redis} />
+            <ContainerCard title="Rabbit" handle={env.containers.rabbit} />
 
             {Object.keys(env.labels).length > 0 && (
               <div className="card">
-                <h3>Labels</h3>
+                <h3>标签</h3>
                 <dl className="dl">
                   {Object.entries(env.labels).map(([k, v]) => (
                     <span key={k} style={{ display: 'contents' }}>

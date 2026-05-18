@@ -32,11 +32,11 @@ export function EnvsList() {
               <thead>
                 <tr>
                   <th>envId</th>
-                  <th>Status</th>
-                  <th>Created</th>
+                  <th>状态</th>
+                  <th>创建时间</th>
                   <th>Mongo</th>
                   <th>Redis</th>
-                  <th>DB</th>
+                  <th>Rabbit</th>
                 </tr>
               </thead>
               <tbody>
@@ -50,15 +50,15 @@ export function EnvsList() {
                     >
                       <td>
                         <code>{shortId(e.envId, 16)}</code>{' '}
-                        {isActive && <span className="badge active">active</span>}
+                        {isActive && <span className="badge active">活跃</span>}
                       </td>
                       <td>
-                        <span className={`badge ${e.status}`}>{e.status}</span>
+                        <span className={`badge ${e.status}`}>{envStatusLabel(e.status)}</span>
                       </td>
                       <td title={fmtTime(e.createdAt)}>{fmtRelative(e.createdAt)}</td>
                       <td><code>{e.images.mongo ?? '—'}</code></td>
                       <td><code>{e.images.redis ?? '—'}</code></td>
-                      <td><code>{e.resolved.dbName}</code></td>
+                      <td><code>{e.images.rabbit ?? '—'}</code></td>
                     </tr>
                   );
                 })}

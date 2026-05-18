@@ -8,13 +8,21 @@
 // the templated values or the raw containers handle, whichever fits.
 //
 // Template syntax (interpolated against the active env at vars.list time):
-//   ${mongo.url}     →  mongodb://<host>:<port>            (no /db)
+//   ${mongo.url}     →  mongodb://<host>:<port>            (no /db, no query)
 //   ${mongo.host}    →  host portion of the active mongo container
 //   ${mongo.port}    →  host port portion of the active mongo container
 //   ${mongo.dbName}  →  manifest.backends.mongo.dbName, if set
+//   ${mongo.params}  →  "?replicaSet=<name>&directConnection=true" when the
+//                       env is running as a replica set, otherwise "".
+//                       Pattern: `${mongo.url}/<db>${mongo.params}` for a
+//                       complete connection string that works for change
+//                       streams / transactions.
 //   ${redis.url}     →  redis://<host>:<port>
 //   ${redis.host}    →  host portion of the active redis container
 //   ${redis.port}    →  host port portion of the active redis container
+//   ${rabbit.url}    →  amqp://<user>:<pass>@<host>:<port>
+//   ${rabbit.host}   →  host portion of the active rabbit container
+//   ${rabbit.port}   →  host port portion of the active rabbit container
 //
 // Why templates? The project may need many derived URLs that share a
 // host:port but differ in db name (e.g. blog-backend has MONGO_URL,
@@ -39,9 +47,12 @@ export interface ContainersView {
   envId: string;
   mongoUrl?: string;
   redisUrl?: string;
+  rabbitUrl?: string;
+  rabbitManagementUrl?: string;
   dbName?: string;
   mongoHostPort?: number;
   redisHostPort?: number;
+  rabbitHostPort?: number;
 }
 
 export interface ResolveVarsResult {
@@ -59,6 +70,10 @@ interface ServiceVars {
   host?: string;
   port?: string;
   dbName?: string;
+  /** Query-string suffix (e.g. "?replicaSet=rs0&directConnection=true").
+   *  Only populated for mongo today; empty string for non-replica-set
+   *  mongo so templates that reference ${mongo.params} stay valid. */
+  params?: string;
 }
 
 function parseHostPort(url: string | undefined): { host?: string; port?: string } {
@@ -71,13 +86,32 @@ function parseHostPort(url: string | undefined): { host?: string; port?: string 
   }
 }
 
-function buildServiceVars(env: ManagedEnv | null): { mongo: ServiceVars; redis: ServiceVars } {
-  if (!env || env.status !== 'ready') return { mongo: {}, redis: {} };
+/** Split a connection URL like "mongodb://h:p/?replicaSet=rs0" into its
+ *  base ("mongodb://h:p") and query ("?replicaSet=rs0") parts. Leading
+ *  slash before `?` is dropped from the base so templates can append
+ *  `/<db>` without a stray `//`. */
+function splitUrlParams(url: string | undefined): { base?: string; params?: string } {
+  if (!url) return {};
+  const qIdx = url.indexOf('?');
+  if (qIdx < 0) return { base: url.replace(/\/+$/, ''), params: '' };
+  const rawBase = url.slice(0, qIdx);
+  const params = url.slice(qIdx);
+  return { base: rawBase.replace(/\/+$/, ''), params };
+}
+
+function buildServiceVars(env: ManagedEnv | null): { mongo: ServiceVars; redis: ServiceVars; rabbit: ServiceVars } {
+  if (!env || env.status !== 'ready') return { mongo: {}, redis: {}, rabbit: {} };
+  // Mongo URL may carry a `?replicaSet=…&directConnection=true` suffix when
+  // running as a replica set. Templates want the base for `${mongo.url}/db`
+  // concatenation and a separate `${mongo.params}` slot for the query.
+  const mSplit = splitUrlParams(env.resolved.mongoUrl);
   const m = parseHostPort(env.resolved.mongoUrl);
   const r = parseHostPort(env.resolved.redisUrl);
+  const q = parseHostPort(env.resolved.rabbitUrl);
   return {
     mongo: {
-      url: env.resolved.mongoUrl,
+      url: mSplit.base,
+      params: mSplit.params ?? '',
       host: m.host,
       port: m.port,
       dbName: env.resolved.dbName,
@@ -87,19 +121,24 @@ function buildServiceVars(env: ManagedEnv | null): { mongo: ServiceVars; redis: 
       host: r.host,
       port: r.port,
     },
+    rabbit: {
+      url: env.resolved.rabbitUrl,
+      host: q.host,
+      port: q.port,
+    },
   };
 }
 
-// Recognized placeholders: ${service.field} where service ∈ {mongo, redis}
+// Recognized placeholders: ${service.field} where service ∈ {mongo, redis, rabbit}
 // and field is a known property of the corresponding ServiceVars. Unknown
 // placeholders are left as-is (caller can spot the leftover ${...} and fix
 // their template or wait for env.up).
-const PLACEHOLDER = /\$\{(mongo|redis)\.([a-zA-Z]+)\}/g;
+const PLACEHOLDER = /\$\{(mongo|redis|rabbit)\.([a-zA-Z]+)\}/g;
 
 export function interpolate(value: VarValue, env: ManagedEnv | null): VarValue {
   if (typeof value !== 'string' || !value.includes('${')) return value;
   const services = buildServiceVars(env);
-  return value.replace(PLACEHOLDER, (match, svc: 'mongo' | 'redis', field: string) => {
+  return value.replace(PLACEHOLDER, (match, svc: 'mongo' | 'redis' | 'rabbit', field: string) => {
     const bag = services[svc] as Record<string, string | undefined>;
     const replacement = bag[field];
     return replacement === undefined ? match : replacement;
@@ -142,9 +181,12 @@ export async function resolveVars(input: ResolveVarsInput): Promise<ResolveVarsR
       envId: env.envId,
       mongoUrl: env.resolved.mongoUrl,
       redisUrl: env.resolved.redisUrl,
+      rabbitUrl: env.resolved.rabbitUrl,
+      rabbitManagementUrl: env.resolved.rabbitManagementUrl,
       dbName: env.resolved.dbName,
       mongoHostPort: env.mongo?.hostPort,
       redisHostPort: env.redis?.hostPort,
+      rabbitHostPort: env.rabbit?.hostPort,
     };
   }
 

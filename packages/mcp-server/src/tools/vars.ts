@@ -33,7 +33,7 @@ export async function runVarsList(input: z.infer<typeof VarsListInput>, ctx: Too
 export const varsListToolDescription = {
   name: 'vars.list',
   description:
-    "Return every environment variable easy-env knows about for the given project, plus a separate `containers` handle when an active env is up. variables: { [name]: { value, source: 'user' | 'unset' } } — values come from ~/.easy-env/projects/{projectName}/vars.json. Template placeholders inside stored values are interpolated at read time against the active env: ${mongo.url}, ${mongo.host}, ${mongo.port}, ${mongo.dbName}, ${redis.url}, ${redis.host}, ${redis.port}. Unknown placeholders are left as-is. containers: { envId, mongoUrl?, redisUrl?, dbName?, mongoHostPort?, redisHostPort? } | null — the raw connection details, also exposed in case you'd rather plumb them yourself with vars.set.",
+    "Return every environment variable easy-env knows about for the given project, plus a separate `containers` handle when an active env is up. variables: { [name]: { value, source: 'user' | 'unset' } } — values come from ~/.easy-env/projects/{projectName}/vars.json. Template placeholders inside stored values are interpolated at read time against the active env: ${mongo.url} (base only, NO query, e.g. mongodb://host:port), ${mongo.params} (query suffix like \"?replicaSet=rs0&directConnection=true\" or empty), ${mongo.host}, ${mongo.port}, ${mongo.dbName}, ${redis.url}, ${redis.host}, ${redis.port}, ${rabbit.url}, ${rabbit.host}, ${rabbit.port}. Idiomatic mongo URL with db: `${mongo.url}/<dbname>${mongo.params}`. Unknown placeholders are left as-is. containers: { envId, mongoUrl?, redisUrl?, rabbitUrl?, rabbitManagementUrl?, dbName?, mongoHostPort?, redisHostPort?, rabbitHostPort? } | null — mongoUrl in containers is the FULL working URL (with query), in case you'd rather plumb it yourself with vars.set.",
   inputSchema: VarsListInput,
 };
 
@@ -70,7 +70,7 @@ export async function runVarsSet(input: z.infer<typeof VarsSetInput>, ctx: ToolC
 export const varsSetToolDescription = {
   name: 'vars.set',
   description:
-    "Set a user-managed variable's value for a given project. Auto-declares the name in the manifest if not already declared. Writes the value to ~/.easy-env/projects/{projectName}/vars.json. Values may contain template placeholders that are interpolated against the active env on every vars.list read: ${mongo.url} (mongodb://host:port, no /db), ${mongo.host}, ${mongo.port}, ${mongo.dbName}, ${redis.url}, ${redis.host}, ${redis.port}. Example: value=\"${mongo.url}/blog\" keeps working across daemon restarts where ports may shift.",
+    "Set a user-managed variable's value for a given project. Auto-declares the name in the manifest if not already declared. Writes the value to ~/.easy-env/projects/{projectName}/vars.json. Values may contain template placeholders that are interpolated against the active env on every vars.list read: ${mongo.url} (mongodb://host:port, NO /db, NO query), ${mongo.params} (e.g. \"?replicaSet=rs0&directConnection=true\" or empty), ${mongo.host}, ${mongo.port}, ${mongo.dbName}, ${redis.url}, ${redis.host}, ${redis.port}, ${rabbit.url} (amqp://user:pass@host:port), ${rabbit.host}, ${rabbit.port}. Example: value=\"${mongo.url}/blog${mongo.params}\" works across replica-set / standalone configs and survives port shifts on daemon restart.",
   inputSchema: VarsSetInput,
 };
 

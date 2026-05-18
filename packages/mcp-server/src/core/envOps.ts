@@ -5,12 +5,24 @@ import { MongoClient } from 'mongodb';
 import Redis from 'ioredis';
 import type { EnvRegistry } from '../store/envRegistry.js';
 import type { ManagedEnv } from '../schemas/env.js';
-import { spawnMongo, spawnRedis, stopAllForEnv, mongoUrlFor, redisUrlFor } from './containers.js';
+import net from 'node:net';
+import {
+  spawnMongo,
+  spawnRedis,
+  spawnRabbit,
+  stopAllForEnv,
+  mongoUrlFor,
+  redisUrlFor,
+  rabbitUrlFor,
+  rabbitManagementUrlFor,
+} from './containers.js';
 import {
   DEFAULT_MONGO_IMAGE,
   DEFAULT_REDIS_IMAGE,
+  DEFAULT_RABBIT_IMAGE,
   FALLBACK_MONGO_URL,
   FALLBACK_REDIS_URL,
+  FALLBACK_RABBIT_URL,
   type BackendsSpec,
 } from './backends.js';
 
@@ -20,6 +32,7 @@ function configHash(spec: BackendsSpec): string {
   const stable = JSON.stringify({
     mongoImage: spec.mongo?.image,
     redisImage: spec.redis?.image,
+    rabbitImage: spec.rabbit?.image,
     dbName: spec.mongo?.dbName,
   });
   return crypto.createHash('sha256').update(stable).digest('hex').slice(0, 16);
@@ -40,6 +53,9 @@ export interface UpOptions {
   withoutMongo?: boolean;
   /** Skip starting Redis (when project doesn't use it). */
   withoutRedis?: boolean;
+  /** Skip starting Rabbit (when project doesn't use it). Default true when
+   *  the manifest has no rabbit backend — envUp consults this. */
+  withoutRabbit?: boolean;
   /** If true, set this new env as the active one. Default true. */
   setActive?: boolean;
   /** Project name to tag on the container labels (for sweeping per-project). */
@@ -68,23 +84,50 @@ export async function envUp(
   try {
     const mongoImage = spec.mongo?.image ?? DEFAULT_MONGO_IMAGE;
     const redisImage = spec.redis?.image ?? DEFAULT_REDIS_IMAGE;
+    const rabbitImage = spec.rabbit?.image ?? DEFAULT_RABBIT_IMAGE;
 
     const mongo = opts.withoutMongo
       ? undefined
-      : await spawnMongo({ envId, image: mongoImage, labels, hostPort: spec.mongo?.port });
+      : await spawnMongo({
+          envId,
+          image: mongoImage,
+          labels,
+          hostPort: spec.mongo?.port,
+          replicaSet: spec.mongo?.replicaSet,
+        });
     const redis = opts.withoutRedis
       ? undefined
       : await spawnRedis({ envId, image: redisImage, labels, hostPort: spec.redis?.port });
+    // Rabbit is opt-in: only spawned when the manifest declares
+    // backends.rabbit. (Mongo/Redis are spawned by default for backward
+    // compatibility — toggling that would break every existing project.)
+    const rabbitSpawn = (!opts.withoutRabbit && spec.rabbit !== undefined)
+      ? await spawnRabbit({
+          envId,
+          image: rabbitImage,
+          labels,
+          hostPort: spec.rabbit.port,
+          managementHostPort: spec.rabbit.managementPort,
+          user: spec.rabbit.user,
+          password: spec.rabbit.password,
+        })
+      : undefined;
+    const rabbit = rabbitSpawn?.handle;
 
     const ready: ManagedEnv = {
       ...initial,
       status: 'ready',
       mongo,
       redis,
+      rabbit,
       resolved: {
         ...(dbName ? { dbName } : {}),
-        mongoUrl: mongo ? mongoUrlFor(mongo) : undefined,
+        mongoUrl: mongo ? mongoUrlFor(mongo, spec.mongo?.replicaSet) : undefined,
         redisUrl: redis ? redisUrlFor(redis) : undefined,
+        rabbitUrl: rabbitSpawn ? rabbitUrlFor(rabbit!, rabbitSpawn.user, rabbitSpawn.password) : undefined,
+        rabbitManagementUrl: rabbitSpawn?.managementHostPort
+          ? rabbitManagementUrlFor(rabbitSpawn.managementHostPort)
+          : undefined,
       },
     };
     await registry.save(ready);
@@ -118,15 +161,40 @@ export async function envList(registry: EnvRegistry): Promise<{
   return { envs, activeEnvId };
 }
 
+/**
+ * Cheap "is something listening?" probe — TCP connect with a short timeout.
+ * Used for Rabbit so we don't need to pull in amqplib just to ping the
+ * broker. Returns true if a connect() succeeded, false on refused/timeout.
+ */
+function tcpProbe(host: string, port: number, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = new net.Socket();
+    let settled = false;
+    const done = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      sock.destroy();
+      resolve(ok);
+    };
+    sock.setTimeout(timeoutMs);
+    sock.once('connect', () => done(true));
+    sock.once('timeout', () => done(false));
+    sock.once('error', () => done(false));
+    sock.connect(port, host);
+  });
+}
+
 export async function envStatus(envId: string, registry: EnvRegistry): Promise<{
   env: ManagedEnv;
   mongoReachable?: boolean;
   redisReachable?: boolean;
+  rabbitReachable?: boolean;
 }> {
   const env = await registry.get(envId);
   if (!env) throw new Error(`env not found: ${envId}`);
   let mongoReachable: boolean | undefined;
   let redisReachable: boolean | undefined;
+  let rabbitReachable: boolean | undefined;
   if (env.resolved.mongoUrl) {
     try {
       const c = await MongoClient.connect(env.resolved.mongoUrl, { serverSelectionTimeoutMS: 1500 });
@@ -153,7 +221,10 @@ export async function envStatus(envId: string, registry: EnvRegistry): Promise<{
       r.disconnect();
     }
   }
-  return { env, mongoReachable, redisReachable };
+  if (env.rabbit) {
+    rabbitReachable = await tcpProbe('localhost', env.rabbit.hostPort, 1500);
+  }
+  return { env, mongoReachable, redisReachable, rabbitReachable };
 }
 
 export async function envReset(
@@ -217,12 +288,13 @@ export async function resolveEnv(
 export async function resolveBackends(
   registry: EnvRegistry,
   envId?: string,
-  override?: { mongoUrl?: string; redisUrl?: string; dbName?: string },
-): Promise<{ mongoUrl: string; redisUrl: string; dbName?: string; envId?: string }> {
+  override?: { mongoUrl?: string; redisUrl?: string; rabbitUrl?: string; dbName?: string },
+): Promise<{ mongoUrl: string; redisUrl: string; rabbitUrl?: string; dbName?: string; envId?: string }> {
   if (override?.mongoUrl && override?.redisUrl) {
     return {
       mongoUrl: override.mongoUrl,
       redisUrl: override.redisUrl,
+      rabbitUrl: override.rabbitUrl,
       dbName: override.dbName,
     };
   }
@@ -231,6 +303,7 @@ export async function resolveBackends(
     return {
       mongoUrl: override?.mongoUrl ?? env.resolved.mongoUrl,
       redisUrl: override?.redisUrl ?? env.resolved.redisUrl,
+      rabbitUrl: override?.rabbitUrl ?? env.resolved.rabbitUrl,
       dbName: override?.dbName ?? env.resolved.dbName,
       envId: env.envId,
     };
@@ -238,6 +311,7 @@ export async function resolveBackends(
   return {
     mongoUrl: override?.mongoUrl ?? FALLBACK_MONGO_URL,
     redisUrl: override?.redisUrl ?? FALLBACK_REDIS_URL,
+    rabbitUrl: override?.rabbitUrl ?? FALLBACK_RABBIT_URL,
     dbName: override?.dbName,
   };
 }

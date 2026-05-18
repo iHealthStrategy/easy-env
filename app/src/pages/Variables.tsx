@@ -240,9 +240,9 @@ function ContainersCard({ containers }: { containers: ContainersHandle | null })
   if (!containers) {
     return (
       <div className="card">
-        <h3>Active env containers</h3>
+        <h3>活跃环境容器</h3>
         <div className="empty" style={{ padding: 14, fontSize: 12, color: 'var(--fg-dim)' }}>
-          No active env. Run <code>env.up</code> to start mongo / redis containers.
+          当前没有活跃环境。请运行 <code>env.up</code> 启动 mongo / redis / rabbit 容器。
         </div>
       </div>
     );
@@ -251,18 +251,20 @@ function ContainersCard({ containers }: { containers: ContainersHandle | null })
     ['envId', containers.envId],
     ['mongoUrl', containers.mongoUrl],
     ['redisUrl', containers.redisUrl],
+    ['rabbitUrl', containers.rabbitUrl],
+    ['rabbitManagementUrl', containers.rabbitManagementUrl],
     ['dbName', containers.dbName],
     ['mongoHostPort', containers.mongoHostPort],
     ['redisHostPort', containers.redisHostPort],
+    ['rabbitHostPort', containers.rabbitHostPort],
   ];
   return (
     <div className="card">
-      <h3>Active env containers</h3>
+      <h3>活跃环境容器</h3>
       <div style={{ marginBottom: 8, color: 'var(--fg-dim)', fontSize: 12, lineHeight: 1.5 }}>
-        Use these to populate the project's actual variable names via{' '}
-        <code>vars.set</code>. For example:{' '}
-        <code>MONGO_BG = `${'$'}{containers.mongoUrl}/bg`</code> or{' '}
-        <code>REDIS_PORT = ${'$'}{'{'}containers.redisHostPort{'}'}</code>.
+        把这些值通过 <code>vars.set</code> 填到项目实际使用的变量名里。例如:
+        <code>MONGO_BG = `${'$'}{containers.mongoUrl}/bg`</code> 或{' '}
+        <code>REDIS_PORT = ${'$'}{'{'}containers.redisHostPort{'}'}</code>。
       </div>
       <table>
         <tbody>

@@ -18,6 +18,13 @@ export const MongoBackendConfig = z.object({
   // this host port so MONGO_URL stays stable across env.up cycles; user
   // variables can safely hardcode it. Omitted → dynamic port (legacy).
   port: z.number().int().min(1).max(65535).optional(),
+  // Run as a single-node replica set with this name (e.g. "rs0"). Required
+  // for change streams / transactions. easy-env will start mongod with
+  // --replSet, exec rs.initiate() once it's listening, and append
+  // ?replicaSet=<name>&directConnection=true to the resolved mongoUrl so
+  // drivers can connect without doing topology discovery. Omitted → run as
+  // a standalone (legacy behaviour).
+  replicaSet: z.string().min(1).optional(),
 });
 
 export const RedisBackendConfig = z.object({
@@ -26,9 +33,22 @@ export const RedisBackendConfig = z.object({
   port: z.number().int().min(1).max(65535).optional(),
 });
 
+export const RabbitBackendConfig = z.object({
+  image: z.string().min(1).optional(),
+  url: z.string().url().optional(),
+  // AMQP host port (default container port 5672).
+  port: z.number().int().min(1).max(65535).optional(),
+  // Optional management UI host port (container 15672). Only allocated when
+  // the image is the *-management variant; omitted → no management UI exposed.
+  managementPort: z.number().int().min(1).max(65535).optional(),
+  user: z.string().min(1).optional(),
+  password: z.string().min(1).optional(),
+});
+
 export const BackendsConfig = z.object({
   mongo: MongoBackendConfig.optional(),
   redis: RedisBackendConfig.optional(),
+  rabbit: RabbitBackendConfig.optional(),
 });
 
 export const AppConfig = z.object({
@@ -72,3 +92,4 @@ export const EasyEnvConfig = z.object({
 export type EasyEnvConfig = z.infer<typeof EasyEnvConfig>;
 export type MongoBackendConfig = z.infer<typeof MongoBackendConfig>;
 export type RedisBackendConfig = z.infer<typeof RedisBackendConfig>;
+export type RabbitBackendConfig = z.infer<typeof RabbitBackendConfig>;

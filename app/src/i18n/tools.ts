@@ -4,11 +4,11 @@ export const TOOL_DESCRIPTIONS_ZH: Record<string, string> = {
   'env.config':
     '加载并解析当前项目的 easy-env.json,返回配置文件路径和解析后的 URL/dbName。会探测后端版本,与声明版本不一致时给出警告(但不阻止运行)。',
   'env.up':
-    '通过 Testcontainers 为本项目启动一个全新的隔离环境。镜像版本取自 easy-env.json(backends.mongo.image / backends.redis.image),分配动态端口。返回 envId 及解析后的连接 URL,后续工具可通过 envId 引用。默认将该 env 设为 active,后续工具调用未指定 envId 时使用它。',
+    '通过 Testcontainers 为本项目启动一个全新的隔离环境。镜像版本取自 easy-env.json(backends.mongo / backends.redis / backends.rabbit 的 image),分配动态端口。Mongo/Redis 默认启动,Rabbit 仅当 manifest 声明 backends.rabbit 时才启动(避免不需要队列的项目多吃 30s 启动时间)。返回 envId 及解析后的连接 URL,后续工具可通过 envId 引用。默认将该 env 设为 active。',
   'env.list':
     '列出本机上 easy-env 当前管理的所有环境,以及 active 指针指向哪个(其他工具未传 envId 时的默认目标)。可用于发现共享主机的其他 agent/session。',
   'env.status':
-    '查看指定环境的详细状态:生命周期阶段、解析后的 URL、Mongo/Redis 的实时健康探针结果。',
+    '查看指定环境的详细状态:生命周期阶段、解析后的 URL、Mongo/Redis/Rabbit 的实时健康探针结果(Rabbit 是 TCP 探针,只看端口是否有人监听,不做 AMQP 握手)。',
   'env.reset':
     '把环境重置到干净状态。默认(recreate:false)走快速路径:对现有容器执行 dropDatabase + flushdb,毫秒级。recreate:true 时销毁并重建容器(新 envId,几秒,适合从损坏卷恢复)。',
   'env.down':

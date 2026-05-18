@@ -20,6 +20,9 @@ export const EnvUpInput = z.object({
   setActive: z.boolean().default(true),
   withoutMongo: z.boolean().default(false),
   withoutRedis: z.boolean().default(false),
+  // Rabbit is opt-in via the manifest; this flag lets callers skip it
+  // explicitly (rare). Default false (= follow the manifest).
+  withoutRabbit: z.boolean().default(false),
 });
 
 async function loadBackendsSpec(ctx: ToolContext, projectName: string, projectRoot: string): Promise<BackendsSpec> {
@@ -27,6 +30,7 @@ async function loadBackendsSpec(ctx: ToolContext, projectName: string, projectRo
   return {
     mongo: manifest.backends.mongo,
     redis: manifest.backends.redis,
+    rabbit: manifest.backends.rabbit,
   };
 }
 
@@ -36,6 +40,7 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
     setActive: input.setActive,
     withoutMongo: input.withoutMongo,
     withoutRedis: input.withoutRedis,
+    withoutRabbit: input.withoutRabbit,
     projectName: input.projectName,
   });
   return {
@@ -49,6 +54,9 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
         : null,
       redis: env.redis
         ? { containerId: env.redis.containerId, image: env.redis.image, hostPort: env.redis.hostPort }
+        : null,
+      rabbit: env.rabbit
+        ? { containerId: env.rabbit.containerId, image: env.rabbit.image, hostPort: env.rabbit.hostPort }
         : null,
     },
     labels: env.labels,
@@ -84,6 +92,7 @@ export async function runEnvList(input: z.infer<typeof EnvListInput>, ctx: ToolC
       images: {
         mongo: e.mongo?.image ?? null,
         redis: e.redis?.image ?? null,
+        rabbit: e.rabbit?.image ?? null,
       },
     })),
   };
@@ -101,17 +110,18 @@ export const envListToolDescription = {
 export const EnvStatusInput = z.object({ envId: z.string() });
 
 export async function runEnvStatus(input: z.infer<typeof EnvStatusInput>, ctx: ToolContext) {
-  const { env, mongoReachable, redisReachable } = await envStatus(input.envId, ctx.registry);
+  const { env, mongoReachable, redisReachable, rabbitReachable } = await envStatus(input.envId, ctx.registry);
   return {
     envId: env.envId,
     projectName: env.labels?.['easy-env.project'] ?? null,
     createdAt: env.createdAt,
     status: env.status,
     resolved: env.resolved,
-    health: { mongoReachable, redisReachable },
+    health: { mongoReachable, redisReachable, rabbitReachable },
     containers: {
       mongo: env.mongo ?? null,
       redis: env.redis ?? null,
+      rabbit: env.rabbit ?? null,
     },
     labels: env.labels,
     error: env.error,
@@ -121,7 +131,7 @@ export async function runEnvStatus(input: z.infer<typeof EnvStatusInput>, ctx: T
 export const envStatusToolDescription = {
   name: 'env.status',
   description:
-    'Inspect one specific environment: lifecycle status, resolved URLs, live health probe results for Mongo and Redis.',
+    'Inspect one specific environment: lifecycle status, resolved URLs, live health probe results for Mongo, Redis and Rabbit (rabbit uses a TCP probe — true means something is listening on 5672, not a full AMQP handshake).',
   inputSchema: EnvStatusInput,
 };
 

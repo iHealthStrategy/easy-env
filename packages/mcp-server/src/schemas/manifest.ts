@@ -20,6 +20,9 @@ export const ProjectName = z
 export const MongoBackendManifest = z.object({
   image: z.string().min(1).optional(),
   port: z.number().int().min(1).max(65535).optional(),
+  // Single-node replica set name; presence triggers --replSet + rs.initiate
+  // during env.up.
+  replicaSet: z.string().min(1).optional(),
 });
 
 export const RedisBackendManifest = z.object({
@@ -27,9 +30,18 @@ export const RedisBackendManifest = z.object({
   port: z.number().int().min(1).max(65535).optional(),
 });
 
+export const RabbitBackendManifest = z.object({
+  image: z.string().min(1).optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  managementPort: z.number().int().min(1).max(65535).optional(),
+  user: z.string().min(1).optional(),
+  password: z.string().min(1).optional(),
+});
+
 export const BackendsManifest = z.object({
   mongo: MongoBackendManifest.optional(),
   redis: RedisBackendManifest.optional(),
+  rabbit: RabbitBackendManifest.optional(),
 });
 
 export const ProjectManifest = z.object({
@@ -42,4 +54,5 @@ export const ProjectManifest = z.object({
 export type ProjectManifest = z.infer<typeof ProjectManifest>;
 export type MongoBackendManifest = z.infer<typeof MongoBackendManifest>;
 export type RedisBackendManifest = z.infer<typeof RedisBackendManifest>;
+export type RabbitBackendManifest = z.infer<typeof RabbitBackendManifest>;
 export type BackendsManifest = z.infer<typeof BackendsManifest>;

@@ -16,7 +16,17 @@ export type StateCaptureInput = z.infer<typeof StateCaptureInput>;
 export async function runStateCapture(input: StateCaptureInput, ctx: ToolContext) {
   // Resolution order: explicit backends > envId (or active env) > built-in fallback.
   const resolved = await resolveBackends(ctx.registry, input.envId, input.backends);
-  const snap = await captureState(input.spec, resolved);
+  const raw = await captureState(input.spec, resolved);
+  // Provenance — tag the snapshot with the env it came from (so the UI can
+  // group snapshots by env/project later). Best-effort: if the env was torn
+  // down between resolveBackends and now we just skip the project lookup.
+  const envId = resolved.envId;
+  let projectName: string | undefined;
+  if (envId) {
+    const env = await ctx.registry.get(envId).catch(() => null);
+    projectName = env?.labels?.['easy-env.project'];
+  }
+  const snap = { ...raw, envId, projectName };
   if (input.scenarioId) await ctx.store.saveSnapshot(input.scenarioId, snap);
   else await ctx.store.saveSnapshot('_adhoc', snap);
   const mongoCollections: Record<string, number> = {};

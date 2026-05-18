@@ -41,7 +41,9 @@ code, pre { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 1
 .sidebar {
   background: var(--bg-2);
   border-right: 1px solid var(--border);
-  padding: 8px 0 16px;
+  /* Extra top padding leaves room for the macOS traffic-light buttons
+     now that the native title bar is hidden (titleBarStyle: Overlay). */
+  padding: 36px 0 16px;
   /* The shell already constrains to 100vh; this just stops a tiny window
      from clipping nav into a scroll bar — content is short (logo + 6 nav
      items + daemon bar) so it should always fit. */
@@ -70,6 +72,10 @@ code, pre { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 1
   max-height: 96px;
   object-fit: contain;
   border-radius: 8px;
+  /* Let mousedown fall through to .brand so its data-tauri-drag-region
+     receives the event (the attribute only fires when event.target matches). */
+  pointer-events: none;
+  -webkit-user-drag: none;
 }
 .sidebar nav a {
   display: block;
@@ -90,6 +96,83 @@ code, pre { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 1
   /* Belt-and-suspenders: the `*` rule already sets this, but keep it
      explicit here as the primary scroll container. */
   overscroll-behavior: none;
+  position: relative;
+}
+
+/* Global warning shown at the top of .main when Docker isn't usable. Two
+   severity levels: `danger` (binary missing) vs `warn` (engine not running). */
+.docker-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  border: 1px solid;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.docker-banner.danger {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--fg);
+}
+.docker-banner.warn {
+  background: rgba(234, 179, 8, 0.08);
+  border-color: rgba(234, 179, 8, 0.4);
+  color: var(--fg);
+}
+.docker-banner-icon { font-size: 18px; line-height: 1; padding-top: 2px; flex-shrink: 0; }
+.docker-banner-body { flex: 1; min-width: 0; }
+.docker-banner-title {
+  font-weight: 600;
+  font-size: 13.5px;
+  margin-bottom: 2px;
+}
+.docker-banner-desc { color: var(--fg-dim); font-size: 12.5px; }
+.docker-banner-desc code {
+  background: var(--bg-3);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11.5px;
+}
+.docker-banner-err {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--bg-3);
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.docker-banner-close {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.docker-banner-close:hover { background: var(--bg-3); color: var(--fg); }
+
+/* Invisible drag strip across the top of the main pane — pairs with the
+   sidebar's drag region so the user can move the window from anywhere
+   along the top edge now that the native title bar is hidden. Sits inside
+   the .main top padding so it doesn't cover any real content. */
+.drag-strip {
+  position: fixed;
+  top: 0;
+  left: 220px;
+  right: 0;
+  height: 28px;
+  z-index: 100;
+  /* Don't catch user-select drags, but stay clickable so the
+     data-tauri-drag-region handler fires on mousedown. */
+  user-select: none;
 }
 
 .page-header {
@@ -190,6 +273,37 @@ button:hover { background: var(--border); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.mini { padding: 2px 8px; font-size: 11px; }
 
+/* Form controls — keep visual parity with buttons (same bg/border/radius). */
+select, input[type='text'], input:not([type]) {
+  background: var(--bg-3);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+}
+select:hover, input[type='text']:hover, input:not([type]):hover { border-color: var(--fg-dim); }
+select:focus, input[type='text']:focus, input:not([type]):focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(79, 140, 255, 0.2);
+}
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 30px;
+  cursor: pointer;
+  /* Custom chevron — matches --fg-dim. Avoids the native macOS dropdown
+     control so the dark theme stays consistent across platforms. */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='none' stroke='%239aa3af' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M3 4.5l3 3 3-3'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+select option { background: var(--bg-2); color: var(--fg); }
+
 /* Toggle switch — used in Settings rows */
 .toggle-row {
   display: flex;
@@ -235,23 +349,115 @@ button.mini { padding: 2px 8px; font-size: 11px; }
 .switch.on .slider::before { transform: translateX(20px); background: var(--accent); }
 .switch.disabled { opacity: 0.5; }
 
-/* Daemon status bar at the bottom of the sidebar */
+/* Daemon status bar at the bottom of the sidebar — compact card with a
+   status header row and a meta block (URL / PID / version). */
 .daemon-bar {
-  margin-top: 24px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
+  margin: 12px 12px 0;
+  padding: 10px 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
   font-size: 12px;
   color: var(--fg-dim);
 }
-.daemon-bar-row { display: flex; align-items: center; gap: 8px; }
-.daemon-bar-label { flex: 1; }
+.daemon-bar-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.daemon-bar-tags {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.daemon-bar-title {
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.daemon-bar-state {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.daemon-bar-state.on {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--green);
+}
+.daemon-bar-state.off {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--red);
+}
+.daemon-bar-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  letter-spacing: 0.04em;
+}
+.daemon-bar-action {
+  margin-left: auto;
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  background: var(--bg-2);
+  color: var(--fg);
+}
+.daemon-bar-action:hover:not(:disabled) { border-color: var(--fg-dim); }
+.daemon-bar-action.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+.daemon-bar-action.primary:hover:not(:disabled) { filter: brightness(1.1); }
+.daemon-bar-action.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: var(--red);
+  color: var(--red);
+}
+.daemon-bar-action:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.daemon-bar-meta {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 .daemon-bar-url {
-  margin-top: 4px;
-  word-break: break-all;
-  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+.daemon-bar-meta-line {
+  font-size: 11px;
+  color: var(--fg-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.daemon-bar-meta-line code { color: var(--fg); font-size: 11px; }
+.daemon-bar-meta-line .sep { opacity: 0.5; margin: 0 2px; }
+
+.daemon-bar-err {
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 6px;
+  color: var(--red);
   font-size: 11px;
 }
-.daemon-bar-err { margin-top: 6px; color: var(--red); }
 .dot {
   display: inline-block;
   width: 8px;

@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useEnvs, useHealth } from '../api/hooks';
 import { QueryState } from '../components/QueryState';
-import { fmtRelative, fmtTime, shortId } from '../components/format';
+import { envStatusLabel, fmtRelative, fmtTime, shortId } from '../components/format';
 
 export function EnvsList() {
   const envs = useEnvs();
@@ -11,12 +11,12 @@ export function EnvsList() {
   return (
     <>
       <div className="page-header">
-        <h2>Environments</h2>
+        <h2>环境</h2>
         <span className="meta">
           {health.data ? (
-            <>daemon v{health.data.version} · up {Math.floor(health.data.uptimeMs / 1000)}s</>
+            <>守护进程 v{health.data.version} · 已运行 {Math.floor(health.data.uptimeMs / 1000)}s</>
           ) : (
-            <>daemon offline</>
+            <>守护进程离线</>
           )}
         </span>
       </div>
@@ -24,7 +24,7 @@ export function EnvsList() {
       <QueryState
         query={envs}
         empty={(d) => d.envs.length === 0}
-        emptyMessage="No environments yet. Run `env.up` from your MCP client to create one."
+        emptyMessage="暂无环境。请在 MCP 客户端中运行 `env.up` 创建一个。"
       >
         {(data) => (
           <div className="card">

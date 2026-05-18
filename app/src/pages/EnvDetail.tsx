@@ -1,7 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
 import { useEnv } from '../api/hooks';
 import { QueryState } from '../components/QueryState';
-import { fmtTime } from '../components/format';
+import { envStatusLabel, fmtTime } from '../components/format';
 import type { ContainerHandle } from '../api/types';
 
 export function EnvDetail() {
@@ -12,7 +12,7 @@ export function EnvDetail() {
     <>
       <div className="page-header">
         <h2>
-          <Link to="/">Environments</Link> / <code>{envId}</code>
+          <Link to="/">环境</Link> / <code>{envId}</code>
         </h2>
       </div>
 
@@ -40,7 +40,7 @@ export function EnvDetail() {
             </div>
 
             <div className="card">
-              <h3>Resolved URLs</h3>
+              <h3>解析后的 URL</h3>
               <dl className="dl">
                 {env.resolved.mongoUrl && (
                   <>
@@ -93,7 +93,7 @@ function ContainerCard({ title, handle }: { title: string; handle: ContainerHand
     return (
       <div className="card">
         <h3>{title}</h3>
-        <div className="empty" style={{ padding: '20px' }}>not provisioned</div>
+        <div className="empty" style={{ padding: '20px' }}>未启动</div>
       </div>
     );
   }
@@ -101,11 +101,11 @@ function ContainerCard({ title, handle }: { title: string; handle: ContainerHand
     <div className="card">
       <h3>{title}</h3>
       <dl className="dl">
-        <dt>image</dt>
+        <dt>镜像</dt>
         <dd><code>{handle.image}</code></dd>
         <dt>containerId</dt>
         <dd><code>{handle.containerId.slice(0, 16)}</code></dd>
-        <dt>port</dt>
+        <dt>端口</dt>
         <dd><code>{handle.hostPort}</code> → <code>{handle.internalPort}</code></dd>
       </dl>
     </div>

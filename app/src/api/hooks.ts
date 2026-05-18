@@ -1,8 +1,21 @@
 // React Query hooks. Wraps the typed api client so pages get caching,
 // loading/error state, and refetch out of the box.
+//
+// Polling cadence: queries that watch state which can change without the
+// user's input (envs spawning/exiting, vars set from another session,
+// daemon health, activity feed) poll periodically so the UI stays live
+// even when the user doesn't navigate away and back. Static-ish things
+// (tools registry, immutable snapshots/diffs) don't poll.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 import type { VarValue, VarsDeclareItem } from './types';
+
+// Default cadence for "live state" queries. Cheap (one local HTTP roundtrip
+// per refresh) and frequent enough that env.up / vars.set / project.delete
+// from any source (MCP, CLI, another window) shows up within ~2s.
+const LIVE_REFETCH_MS = 2000;
+const ACTIVITY_REFETCH_MS = 3000;
+const HEALTH_REFETCH_MS = 5000;
 
 export const queryKeys = {
   health: ['health'] as const,
@@ -19,18 +32,62 @@ export const queryKeys = {
 };
 
 export const useHealth = (opts?: { refetchInterval?: number }) =>
-  useQuery({ queryKey: queryKeys.health, queryFn: api.health, refetchInterval: opts?.refetchInterval });
-export const useTools = () => useQuery({ queryKey: queryKeys.tools, queryFn: api.listTools, staleTime: 60_000 });
-export const useActivity = (opts?: { refetchInterval?: number }) =>
-  useQuery({ queryKey: queryKeys.activity, queryFn: () => api.activity(50), refetchInterval: opts?.refetchInterval });
-export const useEnvs = () => useQuery({ queryKey: queryKeys.envs, queryFn: () => api.listEnvs() });
-export const useEnv = (id: string) => useQuery({ queryKey: queryKeys.env(id), queryFn: () => api.getEnv(id) });
-export const useSnapshots = () => useQuery({ queryKey: queryKeys.snapshots, queryFn: api.listSnapshots });
-export const useSnapshot = (id: string) => useQuery({ queryKey: queryKeys.snapshot(id), queryFn: () => api.getSnapshot(id) });
-export const useDiffs = () => useQuery({ queryKey: queryKeys.diffs, queryFn: api.listDiffs });
-export const useDiff = (id: string) => useQuery({ queryKey: queryKeys.diff(id), queryFn: () => api.getDiff(id) });
+  useQuery({
+    queryKey: queryKeys.health,
+    queryFn: api.health,
+    refetchInterval: opts?.refetchInterval ?? HEALTH_REFETCH_MS,
+  });
 
-export const useProjects = () => useQuery({ queryKey: queryKeys.projects, queryFn: api.listProjects });
+// Tools registry is effectively static for the lifetime of a daemon build.
+export const useTools = () =>
+  useQuery({ queryKey: queryKeys.tools, queryFn: api.listTools, staleTime: 60_000 });
+
+export const useActivity = (opts?: { refetchInterval?: number }) =>
+  useQuery({
+    queryKey: queryKeys.activity,
+    queryFn: () => api.activity(50),
+    refetchInterval: opts?.refetchInterval ?? ACTIVITY_REFETCH_MS,
+  });
+
+export const useEnvs = () =>
+  useQuery({
+    queryKey: queryKeys.envs,
+    queryFn: () => api.listEnvs(),
+    refetchInterval: LIVE_REFETCH_MS,
+  });
+
+export const useEnv = (id: string) =>
+  useQuery({
+    queryKey: queryKeys.env(id),
+    queryFn: () => api.getEnv(id),
+    refetchInterval: LIVE_REFETCH_MS,
+  });
+
+// Snapshots / diffs are immutable artifacts once written; the LIST can
+// gain new entries though, so poll the lists but not the details.
+export const useSnapshots = () =>
+  useQuery({
+    queryKey: queryKeys.snapshots,
+    queryFn: api.listSnapshots,
+    refetchInterval: LIVE_REFETCH_MS,
+  });
+export const useSnapshot = (id: string) =>
+  useQuery({ queryKey: queryKeys.snapshot(id), queryFn: () => api.getSnapshot(id) });
+export const useDiffs = () =>
+  useQuery({
+    queryKey: queryKeys.diffs,
+    queryFn: api.listDiffs,
+    refetchInterval: LIVE_REFETCH_MS,
+  });
+export const useDiff = (id: string) =>
+  useQuery({ queryKey: queryKeys.diff(id), queryFn: () => api.getDiff(id) });
+
+export const useProjects = () =>
+  useQuery({
+    queryKey: queryKeys.projects,
+    queryFn: api.listProjects,
+    refetchInterval: LIVE_REFETCH_MS,
+  });
 
 export function useDeleteProject() {
   const qc = useQueryClient();
@@ -48,6 +105,7 @@ export const useVars = (projectName: string | null) =>
     queryKey: projectName ? queryKeys.vars(projectName) : ['vars', 'none'],
     queryFn: () => api.listVars(projectName!),
     enabled: !!projectName,
+    refetchInterval: LIVE_REFETCH_MS,
   });
 
 export function useSetVar(projectName: string, projectRoot: string) {

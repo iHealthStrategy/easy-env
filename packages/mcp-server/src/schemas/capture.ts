@@ -32,6 +32,10 @@ export const RedisValue = z.object({
 export const SnapshotArtifact = z.object({
   snapshotId: z.string(),
   takenAt: z.string(),
+  // Provenance — captured from the env/project used to take the snapshot.
+  // Optional so artifacts written by older daemon versions still parse.
+  envId: z.string().optional(),
+  projectName: z.string().optional(),
   mongo: z.record(z.string(), z.array(MongoDoc)).default({}),
   redis: z.record(z.string(), RedisValue).default({}),
 });

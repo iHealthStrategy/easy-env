@@ -3,6 +3,7 @@
 // the MCP server config — everything the old Web UI couldn't do.
 
 mod daemon;
+mod docker;
 mod paths;
 mod skill;
 mod mcp_config;
@@ -89,6 +90,16 @@ fn paths_info() -> Result<paths::PathsInfo, String> {
     paths::info().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn docker_status() -> Result<docker::DockerStatus, String> {
+    // Run the blocking probe on a worker thread so the IPC reply channel
+    // stays responsive — docker info can take a second or two on cold
+    // engines.
+    tokio::task::spawn_blocking(docker::status)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[derive(serde::Serialize)]
 struct DaemonFetchResponse {
     status: u16,
@@ -168,6 +179,7 @@ pub fn run() {
             mcp_register,
             mcp_unregister,
             paths_info,
+            docker_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

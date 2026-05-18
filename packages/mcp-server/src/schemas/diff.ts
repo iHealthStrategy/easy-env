@@ -29,6 +29,10 @@ export const DiffArtifact = z.object({
   afterSnapshotId: z.string(),
   beforeTakenAt: z.string(),
   afterTakenAt: z.string(),
+  // Provenance — inherited from the underlying snapshots. Optional because
+  // legacy diffs and snapshots without an envId pass through unchanged.
+  envId: z.string().optional(),
+  projectName: z.string().optional(),
   noisePolicy: z.object({
     ignoreTimestampFields: z.array(z.string()).default([]),
     ignoreRedisTtlDrift: z.boolean().default(true),

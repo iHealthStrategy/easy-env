@@ -11,7 +11,7 @@ export function DiffDetail() {
     <>
       <div className="page-header">
         <h2>
-          <Link to="/diffs">Diffs</Link> / <code>{id}</code>
+          <Link to="/diffs">差异</Link> / <code>{id}</code>
         </h2>
       </div>
 
@@ -29,8 +29,20 @@ export function DiffDetail() {
           return (
             <>
               <div className="card">
-                <h3>Meta</h3>
+                <h3>元信息</h3>
                 <dl className="dl">
+                  <dt>项目</dt>
+                  <dd>
+                    {diff.projectName
+                      ? <code>{diff.projectName}</code>
+                      : <span style={{ color: 'var(--fg-dim)' }}>未关联</span>}
+                  </dd>
+                  <dt>环境</dt>
+                  <dd>
+                    {diff.envId
+                      ? <Link to={`/envs/${diff.envId}`}><code>{diff.envId}</code></Link>
+                      : <span style={{ color: 'var(--fg-dim)' }}>未关联</span>}
+                  </dd>
                   <dt>before</dt>
                   <dd>
                     <Link to={`/snapshots/${diff.beforeSnapshotId}`}>
@@ -51,15 +63,15 @@ export function DiffDetail() {
               <div className="card">
                 <h3>Mongo</h3>
                 {mongoCounts.length === 0 ? (
-                  <div className="empty" style={{ padding: 20 }}>no mongo diff</div>
+                  <div className="empty" style={{ padding: 20 }}>无 Mongo 差异</div>
                 ) : (
                   <table>
                     <thead>
                       <tr>
                         <th>Collection</th>
-                        <th>Added</th>
-                        <th>Removed</th>
-                        <th>Modified</th>
+                        <th>新增</th>
+                        <th>删除</th>
+                        <th>修改</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -79,14 +91,14 @@ export function DiffDetail() {
               <div className="card">
                 <h3>Redis</h3>
                 <dl className="dl">
-                  <dt>added</dt><dd>{redisAdded}</dd>
-                  <dt>removed</dt><dd>{redisRemoved}</dd>
-                  <dt>modified</dt><dd>{redisModified}</dd>
+                  <dt>新增</dt><dd>{redisAdded}</dd>
+                  <dt>删除</dt><dd>{redisRemoved}</dd>
+                  <dt>修改</dt><dd>{redisModified}</dd>
                 </dl>
               </div>
 
               <div className="card">
-                <h3>Full JSON</h3>
+                <h3>完整 JSON</h3>
                 <pre className="json">{JSON.stringify(diff, null, 2)}</pre>
               </div>
             </>

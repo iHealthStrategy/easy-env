@@ -46,23 +46,41 @@ export function DaemonStatusBar() {
     }
   };
 
+  const healthy = !!status?.healthy;
   return (
     <div className="daemon-bar">
-      <div className="daemon-bar-row">
-        <span className={`dot ${status?.healthy ? 'ok' : 'off'}`} />
-        <span className="daemon-bar-label">
-          Daemon {status?.healthy ? 'running' : 'stopped'}
-          {status?.external ? ' (external)' : ''}
-        </span>
-        <button onClick={onToggle} disabled={busy} className="mini">
-          {busy ? '…' : status?.healthy ? 'Stop' : 'Start'}
+      <div className="daemon-bar-head">
+        <span className={`dot ${healthy ? 'ok' : 'off'}`} />
+        <span className="daemon-bar-title">守护进程</span>
+        <button
+          onClick={onToggle}
+          disabled={busy}
+          className={`daemon-bar-action ${healthy ? 'danger' : 'primary'}`}
+        >
+          {busy ? '…' : healthy ? '停止' : '启动'}
         </button>
       </div>
-      <div className="daemon-bar-url">
-        {status ? status.url : '—'}
-        {status?.pid ? ` · pid ${status.pid}` : ''}
-        {status?.version ? ` · v${status.version}` : ''}
+
+      <div className="daemon-bar-tags">
+        <span className={`daemon-bar-state ${healthy ? 'on' : 'off'}`}>
+          {healthy ? '运行中' : '已停止'}
+        </span>
+        {status?.external && <span className="daemon-bar-tag">外部启动</span>}
       </div>
+
+      {status && (
+        <div className="daemon-bar-meta">
+          <code className="daemon-bar-url" title={status.url}>{status.url}</code>
+          {(status.pid || status.version) && (
+            <div className="daemon-bar-meta-line">
+              {status.pid && <>pid <code>{status.pid}</code></>}
+              {status.pid && status.version && <span className="sep">·</span>}
+              {status.version && <code>v{status.version}</code>}
+            </div>
+          )}
+        </div>
+      )}
+
       {err && <div className="daemon-bar-err">{err}</div>}
     </div>
   );

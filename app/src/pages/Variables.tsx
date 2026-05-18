@@ -37,12 +37,12 @@ export function Variables() {
   return (
     <>
       <div className="page-header">
-        <h2>Variables</h2>
+        <h2>变量</h2>
         <span className="meta">
           {projectsQuery.data?.projects.length === 0
-            ? 'no projects registered'
+            ? '暂无已注册项目'
             : project
-              ? <>project: <code>{project.name}</code> · <code>{project.projectRoot}</code></>
+              ? <>项目:<code>{project.name}</code> · <code>{project.projectRoot}</code></>
               : <>—</>
           }
         </span>
@@ -54,10 +54,9 @@ export function Variables() {
             return (
               <div className="card">
                 <div className="empty" style={{ padding: 20, lineHeight: 1.6 }}>
-                  No project registered yet. From an AI session inside a project
-                  with <code>easy-env.json</code>, call <code>env.init</code> to
-                  register it. The daemon never reads project directories — every
-                  project is identified by what the AI submits.
+                  暂无已注册的项目。请在含有 <code>easy-env.json</code> 的项目中,
+                  通过 AI session 调用 <code>env.init</code> 完成注册。
+                  守护进程从不读取项目目录 —— 每个项目都由 AI 提交的信息标识。
                 </div>
               </div>
             );
@@ -65,20 +64,15 @@ export function Variables() {
           return (
             <>
               <div className="card">
-                <h3>Project</h3>
+                <h3>项目</h3>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <select
                     value={selected ?? ''}
                     onChange={(e) => setSelected(e.target.value)}
-                    style={{
-                      background: 'var(--bg)', color: 'var(--fg)',
-                      border: '1px solid var(--border)', padding: '6px 10px',
-                      borderRadius: 4, fontFamily: 'inherit', fontSize: 13,
-                    }}
                   >
                     {data.projects.map((p) => (
                       <option key={p.name} value={p.name}>
-                        {p.name} ({p.variableCount} vars)
+                        {p.name}({p.variableCount} 个变量)
                       </option>
                     ))}
                   </select>
@@ -113,32 +107,32 @@ function ProjectVariables({ projectName, projectRoot }: { projectName: string; p
           return (
             <>
               <div className="card">
-                <h3>Actions</h3>
-                <button onClick={() => setDeclareOpen(true)}>Declare variable…</button>
+                <h3>操作</h3>
+                <button onClick={() => setDeclareOpen(true)}>声明变量…</button>
                 <div style={{ marginTop: 10, color: 'var(--fg-dim)', fontSize: 12, lineHeight: 1.5 }}>
-                  The AI (via MCP) is the authoritative declarer of this project's
-                  env vars — it reads <code>easy-env.json</code> /
-                  <code> docker-compose</code> / source / README and posts{' '}
-                  <code>vars.declare</code>. Use this dialog for ad-hoc additions.
+                  本项目环境变量的权威声明方是 AI(通过 MCP)——
+                  它会读取 <code>easy-env.json</code> /
+                  <code> docker-compose</code> / 源代码 / README,
+                  调用 <code>vars.declare</code> 提交。本对话框用于临时手动添加。
                 </div>
               </div>
 
               <ContainersCard containers={data.containers} />
 
               <div className="card">
-                <h3>Variables</h3>
+                <h3>变量</h3>
                 {entries.length === 0 ? (
                   <div className="empty" style={{ padding: 20 }}>
-                    No variables declared yet. Use "Declare variable" or have the AI run vars.declare.
+                    暂无声明的变量。可点击「声明变量」,或让 AI 运行 vars.declare。
                   </div>
                 ) : (
                   <table>
                     <thead>
                       <tr>
-                        <th style={{ width: 240 }}>Name</th>
-                        <th>Value</th>
-                        <th style={{ width: 120 }}>Source</th>
-                        <th style={{ width: 140 }}>Actions</th>
+                        <th style={{ width: 240 }}>名称</th>
+                        <th>值</th>
+                        <th style={{ width: 120 }}>来源</th>
+                        <th style={{ width: 140 }}>操作</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -210,25 +204,25 @@ function VarRow({
             style={{ width: '100%', background: 'var(--bg)', color: 'var(--fg)', border: '1px solid var(--border)', padding: '4px 8px', borderRadius: 4, fontFamily: 'inherit', fontSize: 12 }}
           />
         ) : entry.source === 'unset' ? (
-          <span style={{ color: 'var(--fg-dim)', fontStyle: 'italic' }}>not set</span>
+          <span style={{ color: 'var(--fg-dim)', fontStyle: 'italic' }}>未设置</span>
         ) : (
           <code>{String(entry.value)}</code>
         )}
       </td>
-      <td><span className={`badge ${badgeClassFor(entry.source)}`}>{entry.source}</span></td>
+      <td><span className={`badge ${badgeClassFor(entry.source)}`}>{sourceLabel(entry.source)}</span></td>
       <td>
         {editing ? (
           <>
-            <button onClick={handleSave} disabled={setVar.isPending}>Save</button>{' '}
-            <button onClick={() => setEditing(false)}>Cancel</button>
+            <button onClick={handleSave} disabled={setVar.isPending}>保存</button>{' '}
+            <button onClick={() => setEditing(false)}>取消</button>
           </>
         ) : (
           <>
             <button onClick={() => { setDraft(formatForEdit(entry.value)); setEditing(true); }}>
-              {entry.source === 'unset' ? 'Set' : 'Edit'}
+              {entry.source === 'unset' ? '设置' : '编辑'}
             </button>{' '}
             {entry.source === 'user' && (
-              <button onClick={() => unsetVar.mutate(name)} disabled={unsetVar.isPending}>Clear</button>
+              <button onClick={() => unsetVar.mutate(name)} disabled={unsetVar.isPending}>清除</button>
             )}
           </>
         )}
@@ -308,14 +302,12 @@ function DeclareModal({
   const nameValid = !!name && /^[A-Z_][A-Z0-9_]*$/.test(name);
 
   return (
-    <Modal onClose={onClose} title="Declare a variable">
+    <Modal onClose={onClose} title="声明一个变量">
       <div style={{ marginBottom: 12, color: 'var(--fg-dim)', fontSize: 12 }}>
-        Adds the name to the daemon-side manifest; if you provide a value
-        it's written into the per-project store (existing values are never
-        overwritten).
+        将该名称添加到守护进程侧的清单;如果填了值,会写入该项目的存储(已有值不会被覆盖)。
       </div>
 
-      <Field label="Name (UPPER_SNAKE_CASE)">
+      <Field label="名称(UPPER_SNAKE_CASE)">
         <input
           value={name}
           onChange={(e) => setName(e.target.value.toUpperCase())}
@@ -325,12 +317,12 @@ function DeclareModal({
         />
         {name && !nameValid && (
           <div style={{ color: 'var(--red)', fontSize: 11, marginTop: 4 }}>
-            Must match /^[A-Z_][A-Z0-9_]*$/
+            必须匹配 /^[A-Z_][A-Z0-9_]*$/
           </div>
         )}
       </Field>
 
-      <Field label="Initial value (optional)">
+      <Field label="初始值(可选)">
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -338,7 +330,7 @@ function DeclareModal({
         />
       </Field>
 
-      <Field label="Evidence (optional)">
+      <Field label="证据出处(可选)">
         <input
           value={evidence}
           onChange={(e) => setEvidence(e.target.value)}
@@ -352,18 +344,18 @@ function DeclareModal({
       )}
       {declare.isSuccess && (
         <div style={{ color: 'var(--green)', marginBottom: 12 }}>
-          ✓ Declared {declare.data?.results[0]?.name} ({declare.data?.results[0]?.declared}).
+          ✓ 已声明 {declare.data?.results[0]?.name}({declare.data?.results[0]?.declared})。
         </div>
       )}
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-        <button onClick={onClose}>Cancel</button>
+        <button onClick={onClose}>取消</button>
         <button
           onClick={submit}
           disabled={!nameValid || declare.isPending}
           style={{ background: 'var(--accent)', color: 'white', borderColor: 'var(--accent)' }}
         >
-          Declare
+          声明
         </button>
       </div>
     </Modal>
@@ -409,6 +401,10 @@ function badgeClassFor(source: VarEntry['source']): string {
   }
 }
 
+function sourceLabel(source: VarEntry['source']): string {
+  return { user: '用户', unset: '未设置' }[source];
+}
+
 function formatForEdit(v: unknown): string {
   if (v === null || v === undefined) return '';
   if (typeof v === 'boolean' || typeof v === 'number') return String(v);
@@ -440,9 +436,9 @@ function DeleteProjectButton({
       <button
         onClick={() => setConfirming(true)}
         style={{ marginLeft: 'auto', color: 'var(--red, #c33)', borderColor: 'var(--red, #c33)' }}
-        title={`Delete ~/.easy-env/projects/${projectName}/ (manifest + values). Source tree's easy-env.json stays.`}
+        title={`删除 ~/.easy-env/projects/${projectName}/(清单 + 值)。源码树里的 easy-env.json 不变。`}
       >
-        Delete project…
+        删除项目…
       </button>
     );
   }
@@ -458,10 +454,10 @@ function DeleteProjectButton({
       }}
     >
       <span style={{ color: 'var(--fg-dim)' }}>
-        Delete <code>{projectName}</code>?
+        删除 <code>{projectName}</code>?
         <span style={{ display: 'block', fontSize: 11, marginTop: 2 }}>
-          Removes manifest + all variable values from <code>~/.easy-env/projects/{projectName}/</code>.
-          Source tree <code>easy-env.json</code> at <code>{projectRoot}</code> is untouched.
+          会移除 <code>~/.easy-env/projects/{projectName}/</code> 下的清单和所有变量值。
+          位于 <code>{projectRoot}</code> 的源码树 <code>easy-env.json</code> 不会被动。
         </span>
       </span>
       <button
@@ -476,10 +472,10 @@ function DeleteProjectButton({
         disabled={deleteProject.isPending}
         style={{ background: 'var(--red, #c33)', color: 'white', borderColor: 'var(--red, #c33)' }}
       >
-        {deleteProject.isPending ? 'Deleting…' : 'Confirm'}
+        {deleteProject.isPending ? '删除中…' : '确认删除'}
       </button>
       <button onClick={() => setConfirming(false)} disabled={deleteProject.isPending}>
-        Cancel
+        取消
       </button>
       {deleteProject.isError && (
         <div style={{ color: 'var(--red, #c33)', fontSize: 11 }}>

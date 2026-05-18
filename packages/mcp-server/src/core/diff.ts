@@ -100,6 +100,10 @@ export function diffSnapshots(
     afterSnapshotId: after.snapshotId,
     beforeTakenAt: before.takenAt,
     afterTakenAt: after.takenAt,
+    // Provenance — inherit from after (current state); fall back to before
+    // in the rare case the snapshots came from differently-tagged sources.
+    envId: after.envId ?? before.envId,
+    projectName: after.projectName ?? before.projectName,
     noisePolicy,
     mongo,
     redis,

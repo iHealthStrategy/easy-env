@@ -57,6 +57,8 @@ export interface ArtifactSummary {
   id: string;
   takenAt: string;
   sizeBytes: number;
+  envId?: string;
+  projectName?: string;
 }
 
 export interface SnapshotsListResponse {
@@ -73,6 +75,8 @@ export interface DiffsListResponse {
 export type SnapshotDetailResponse = {
   snapshotId: string;
   takenAt: string;
+  envId?: string;
+  projectName?: string;
   mongo: Record<string, unknown[]>;
   redis: Record<string, unknown>;
 };
@@ -83,6 +87,8 @@ export type DiffDetailResponse = {
   afterSnapshotId: string;
   beforeTakenAt: string;
   afterTakenAt: string;
+  envId?: string;
+  projectName?: string;
   mongo: Record<string, { added: unknown[]; removed: unknown[]; modified: unknown[] }>;
   redis: {
     added: Record<string, unknown>;

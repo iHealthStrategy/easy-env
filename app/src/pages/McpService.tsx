@@ -13,29 +13,29 @@ export function McpService() {
   return (
     <>
       <div className="page-header">
-        <h2>MCP Service</h2>
-        <span className="meta">auto-refresh every {REFRESH_MS / 1000}s</span>
+        <h2>MCP 服务</h2>
+        <span className="meta">每 {REFRESH_MS / 1000} 秒自动刷新</span>
       </div>
 
       {/* Daemon health */}
       <div className="card">
-        <h3>Daemon</h3>
+        <h3>守护进程</h3>
         {health.isPending ? (
-          <div className="loading">checking…</div>
+          <div className="loading">检查中…</div>
         ) : health.isError ? (
-          <div className="error-banner">Daemon unreachable: {(health.error as Error).message}</div>
+          <div className="error-banner">守护进程无法连接:{(health.error as Error).message}</div>
         ) : (
           <dl className="dl">
-            <dt>Status</dt>
-            <dd><span className="badge ready">running</span></dd>
-            <dt>Version</dt>
+            <dt>状态</dt>
+            <dd><span className="badge ready">运行中</span></dd>
+            <dt>版本</dt>
             <dd><code>{health.data.version}</code></dd>
             <dt>PID</dt>
             <dd><code>{health.data.pid}</code></dd>
-            <dt>Started</dt>
+            <dt>启动时间</dt>
             <dd>
               {fmtTime(health.data.startedAt)}{' '}
-              <span style={{ color: 'var(--fg-dim)' }}>({fmtUptime(health.data.uptimeMs)})</span>
+              <span style={{ color: 'var(--fg-dim)' }}>(已运行 {fmtUptime(health.data.uptimeMs)})</span>
             </dd>
           </dl>
         )}
@@ -43,18 +43,18 @@ export function McpService() {
 
       {/* Activity stats */}
       <div className="card">
-        <h3>Activity</h3>
+        <h3>调用统计</h3>
         {activity.isPending ? (
-          <div className="loading">loading…</div>
+          <div className="loading">加载中…</div>
         ) : activity.isError ? (
           <div className="error-banner">{(activity.error as Error).message}</div>
         ) : (
           <dl className="dl">
-            <dt>Total calls</dt>
+            <dt>总调用数</dt>
             <dd><code>{activity.data.stats.total}</code></dd>
-            <dt>Successful</dt>
+            <dt>成功</dt>
             <dd><code style={{ color: 'var(--green)' }}>{activity.data.stats.ok}</code></dd>
-            <dt>Errors</dt>
+            <dt>失败</dt>
             <dd><code style={{ color: 'var(--red)' }}>{activity.data.stats.error}</code></dd>
           </dl>
         )}
@@ -62,21 +62,21 @@ export function McpService() {
 
       {/* Recent activity table */}
       <div className="card">
-        <h3>Recent calls</h3>
+        <h3>最近调用</h3>
         <QueryState
           query={activity}
           empty={(d) => d.entries.length === 0}
-          emptyMessage="No tool calls recorded since daemon started."
+          emptyMessage="自守护进程启动以来还没有任何工具调用记录。"
         >
           {(data) => (
             <table>
               <thead>
                 <tr>
-                  <th>Tool</th>
-                  <th>Started</th>
-                  <th>Duration</th>
-                  <th>Status</th>
-                  <th>Error</th>
+                  <th>工具</th>
+                  <th>开始时间</th>
+                  <th>耗时</th>
+                  <th>状态</th>
+                  <th>错误</th>
                 </tr>
               </thead>
               <tbody>
@@ -87,7 +87,7 @@ export function McpService() {
                     <td>{e.durationMs}ms</td>
                     <td>
                       <span className={`badge ${e.status === 'ok' ? 'ready' : 'error'}`}>
-                        {e.status}
+                        {e.status === 'ok' ? '成功' : '失败'}
                       </span>
                     </td>
                     <td>
@@ -112,14 +112,14 @@ export function McpService() {
 
       {/* Tools registry */}
       <div className="card">
-        <h3>Available tools</h3>
+        <h3>可用工具</h3>
         <QueryState query={tools}>
           {(data) => (
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: 180 }}>Name</th>
-                  <th>Description</th>
+                  <th style={{ width: 180 }}>名称</th>
+                  <th>说明</th>
                 </tr>
               </thead>
               <tbody>

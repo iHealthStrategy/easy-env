@@ -43,6 +43,15 @@ export type McpStatus = {
   current_args: string[] | null;
 };
 
+export type DockerState = 'running' | 'not-running' | 'not-installed';
+
+export type DockerStatus = {
+  state: DockerState;
+  binary: string | null;
+  server_version: string | null;
+  error: string | null;
+};
+
 export type PathsInfo = {
   repo_root: string;
   mcp_server_dir: string;
@@ -86,6 +95,10 @@ export const tauri = {
       IS_TAURI ? invoke('skill_install') : ensureTauri(),
     uninstall: (): Promise<SkillStatus> =>
       IS_TAURI ? invoke('skill_uninstall') : ensureTauri(),
+  },
+  docker: {
+    status: (): Promise<DockerStatus> =>
+      IS_TAURI ? invoke('docker_status') : ensureTauri(),
   },
   mcp: {
     status: (): Promise<McpStatus> =>

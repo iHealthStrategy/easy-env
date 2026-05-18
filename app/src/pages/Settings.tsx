@@ -24,7 +24,7 @@ export function Settings() {
   const refresh = async () => {
     if (!tauri.isTauri) {
       setError(
-        'Tauri runtime not detected. Launch via `npm run tauri:dev` to use Settings.',
+        '未检测到 Tauri 运行时。请通过 `npm run tauri:dev` 启动后使用设置页。',
       );
       setState('idle');
       return;
@@ -101,39 +101,39 @@ export function Settings() {
   return (
     <div>
       <div className="page-header">
-        <h2>Settings</h2>
-        <span className="meta">All actions write to your local filesystem only.</span>
+        <h2>设置</h2>
+        <span className="meta">所有操作仅写入本地文件系统。</span>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
-      {state === 'loading' && <div className="loading">Loading…</div>}
+      {state === 'loading' && <div className="loading">加载中…</div>}
 
       <div className="card">
-        <h3>Daemon</h3>
+        <h3>守护进程</h3>
         <ToggleRow
-          label="Run easy-env daemon"
+          label="运行 easy-env 守护进程"
           description={
             daemon?.healthy
-              ? `Listening on ${daemon.url}${daemon.version ? ` (v${daemon.version})` : ''}.`
-              : 'Spawns the Node.js daemon as a child process. Required for env / snapshot / diff endpoints.'
+              ? `正在监听 ${daemon.url}${daemon.version ? `(v${daemon.version})` : ''}。`
+              : '以子进程方式启动 Node.js 守护进程。env / snapshot / diff 等接口都依赖它。'
           }
           on={!!daemon?.healthy}
           busy={state === 'busy'}
           onChange={() => runToggle('daemon')}
         />
         {daemon?.last_error && (
-          <div className="error-banner">Last error: {daemon.last_error}</div>
+          <div className="error-banner">上次错误:{daemon.last_error}</div>
         )}
       </div>
 
       <div className="card">
-        <h3>Claude Code skill</h3>
+        <h3>Claude Code 技能</h3>
         <ToggleRow
-          label="Install easy-env skill into ~/.claude/skills"
+          label="将 easy-env 技能安装到 ~/.claude/skills"
           description={
             skill
-              ? `${skill.entries.length} skill file(s). Target: ${skill.target_dir}`
-              : 'Copy the bootstrap markdown into your Claude Code skills directory.'
+              ? `${skill.entries.length} 个技能文件。目标目录:${skill.target_dir}`
+              : '把引导用的 markdown 复制到 Claude Code 的 skills 目录。'
           }
           on={!!skill?.all_installed}
           busy={state === 'busy'}
@@ -143,9 +143,9 @@ export function Settings() {
           <table>
             <thead>
               <tr>
-                <th>Skill</th>
-                <th>Installed</th>
-                <th>Up to date</th>
+                <th>技能</th>
+                <th>已安装</th>
+                <th>是否最新</th>
               </tr>
             </thead>
             <tbody>
@@ -154,16 +154,16 @@ export function Settings() {
                   <td><code>{e.name}</code></td>
                   <td>
                     {e.installed ? (
-                      <span className="badge ready">Yes</span>
+                      <span className="badge ready">是</span>
                     ) : (
-                      <span className="badge destroyed">No</span>
+                      <span className="badge destroyed">否</span>
                     )}
                   </td>
                   <td>
                     {e.up_to_date ? (
-                      <span className="badge ready">Yes</span>
+                      <span className="badge ready">最新</span>
                     ) : (
-                      <span className="badge starting">Stale</span>
+                      <span className="badge starting">过期</span>
                     )}
                   </td>
                 </tr>
@@ -174,13 +174,13 @@ export function Settings() {
       </div>
 
       <div className="card">
-        <h3>Claude Code MCP server</h3>
+        <h3>Claude Code MCP 服务器</h3>
         <ToggleRow
-          label="Register easy-env in ~/.claude.json"
+          label="在 ~/.claude.json 中注册 easy-env"
           description={
             mcp?.registered
-              ? `Registered: ${mcp.current_command} ${mcp.current_args?.join(' ') ?? ''}`
-              : 'Adds the easy-env MCP stdio server to your Claude Code config. Requires the mcp-server package to be built.'
+              ? `已注册:${mcp.current_command} ${mcp.current_args?.join(' ') ?? ''}`
+              : '把 easy-env MCP stdio 服务器添加到 Claude Code 配置中。需要先构建 mcp-server 包。'
           }
           on={!!mcp?.registered}
           busy={state === 'busy'}
@@ -189,43 +189,43 @@ export function Settings() {
         />
         {mcp && !mcp.server_entry_exists && (
           <div className="error-banner">
-            Server entry not built. Run{' '}
-            <code>npm run build --workspace easy-env-mcp</code> first.
+            服务器入口尚未构建。请先运行{' '}
+            <code>npm run build --workspace easy-env-mcp</code>。
           </div>
         )}
       </div>
 
       <div className="card">
-        <h3>Paths</h3>
+        <h3>路径</h3>
         <dl className="dl">
-          <dt>Repo root</dt>
+          <dt>仓库根目录</dt>
           <dd><code>{paths?.repo_root ?? '—'}</code></dd>
-          <dt>MCP server dir</dt>
+          <dt>MCP server 目录</dt>
           <dd><code>{paths?.mcp_server_dir ?? '—'}</code></dd>
-          <dt>Daemon entry</dt>
+          <dt>守护进程入口</dt>
           <dd>
             <code>{paths?.daemon_entry ?? '—'}</code>{' '}
             {paths && (
               <span className={`badge ${paths.daemon_entry_exists ? 'ready' : 'destroyed'}`}>
-                {paths.daemon_entry_exists ? 'present' : 'missing'}
+                {paths.daemon_entry_exists ? '存在' : '缺失'}
               </span>
             )}
           </dd>
-          <dt>MCP server entry</dt>
+          <dt>MCP 服务器入口</dt>
           <dd>
             <code>{paths?.server_entry ?? '—'}</code>{' '}
             {paths && (
               <span className={`badge ${paths.server_entry_exists ? 'ready' : 'destroyed'}`}>
-                {paths.server_entry_exists ? 'present' : 'missing'}
+                {paths.server_entry_exists ? '存在' : '缺失'}
               </span>
             )}
           </dd>
-          <dt>Claude skills dir</dt>
+          <dt>Claude skills 目录</dt>
           <dd><code>{paths?.claude_skills_dir ?? '—'}</code></dd>
-          <dt>Claude config</dt>
+          <dt>Claude 配置文件</dt>
           <dd><code>{paths?.claude_config_path ?? '—'}</code></dd>
-          <dt>Node binary</dt>
-          <dd><code>{paths?.node_binary ?? 'not found'}</code></dd>
+          <dt>Node 可执行文件</dt>
+          <dd><code>{paths?.node_binary ?? '未找到'}</code></dd>
         </dl>
       </div>
     </div>

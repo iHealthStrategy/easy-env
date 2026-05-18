@@ -10,6 +10,10 @@ export interface ArtifactSummary {
   id: string;
   takenAt: string;
   sizeBytes: number;
+  // Provenance — only present on artifacts captured with envId/project
+  // metadata. Older artifacts leave these undefined.
+  envId?: string;
+  projectName?: string;
 }
 
 export interface Store {
@@ -113,7 +117,9 @@ export class FsStore implements Store {
         const parsed = await this.readJson<Record<string, unknown>>(full);
         if (!parsed) continue;
         const takenAt = typeof parsed[takenAtField] === 'string' ? (parsed[takenAtField] as string) : stat.mtime.toISOString();
-        out.push({ id: f.replace(/\.json$/, ''), takenAt, sizeBytes: stat.size });
+        const envId = typeof parsed.envId === 'string' ? (parsed.envId as string) : undefined;
+        const projectName = typeof parsed.projectName === 'string' ? (parsed.projectName as string) : undefined;
+        out.push({ id: f.replace(/\.json$/, ''), takenAt, sizeBytes: stat.size, envId, projectName });
       } catch {
         // skip corrupt artifacts
       }

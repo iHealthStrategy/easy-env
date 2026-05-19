@@ -5,23 +5,92 @@
 // read the seed file contents — by design.
 import { z } from 'zod';
 import type { ToolContext } from '../core/context.js';
-import { StateSeedInput, StateSeedResult } from '../schemas/seed.js';
+import { StateSeedInput, StateSeedResult, SeedJsonResult, SeedScriptResult } from '../schemas/seed.js';
 import { resolveSeedPath, readJsonSeedFile, applyJsonSeed, runSeedScript } from '../core/seed.js';
 import { envReset, resolveEnv } from '../core/envOps.js';
 import { DEFAULT_RABBIT_USER, DEFAULT_RABBIT_PASSWORD } from '../core/backends.js';
+import type { ManagedEnv } from '../schemas/env.js';
+import type { ProjectManifest } from '../schemas/manifest.js';
 
 export { StateSeedInput };
+
+/**
+ * Apply a project's declared seed files (manifest.seed.json then scripts)
+ * against a ready managed env. Shared by:
+ *   - state.seed tool (manual / on-demand re-seed, supports reset + only)
+ *   - env.up auto-seed (runs once on fresh provisioning, no reset/only)
+ *
+ * Stops on first script failure so the caller sees the failing script's
+ * stderr in the partial result rather than a generic late error.
+ */
+export async function applyManifestSeed(opts: {
+  manifest: ProjectManifest;
+  env: ManagedEnv;
+  ctx: ToolContext;
+  only?: { json?: number[]; scripts?: number[] };
+}): Promise<{
+  json: z.infer<typeof SeedJsonResult>[];
+  scripts: z.infer<typeof SeedScriptResult>[];
+}> {
+  const { manifest, env, ctx, only } = opts;
+  const jsonPaths = manifest.seed.json;
+  const scriptPaths = manifest.seed.scripts;
+  const jsonIdxs = filterIndices(jsonPaths.length, only?.json);
+  const scriptIdxs = filterIndices(scriptPaths.length, only?.scripts);
+
+  const rabbitCreds = manifest.backends.rabbit && env.resolved.rabbitManagementUrl
+    ? {
+        user: manifest.backends.rabbit.user ?? DEFAULT_RABBIT_USER,
+        password: manifest.backends.rabbit.password ?? DEFAULT_RABBIT_PASSWORD,
+        managementUrl: env.resolved.rabbitManagementUrl,
+      }
+    : undefined;
+
+  const json: z.infer<typeof SeedJsonResult>[] = [];
+  for (const idx of jsonIdxs) {
+    const rel = jsonPaths[idx];
+    const abs = resolveSeedPath(manifest.projectRoot, rel);
+    const t0 = Date.now();
+    const data = await readJsonSeedFile(abs);
+    const applied = await applyJsonSeed(data, env, rabbitCreds);
+    json.push({
+      file: rel,
+      mongo: applied.mongo,
+      redis: applied.redis,
+      rabbit: applied.rabbit,
+      durationMs: Date.now() - t0,
+    });
+  }
+
+  const scripts: z.infer<typeof SeedScriptResult>[] = [];
+  for (const idx of scriptIdxs) {
+    const rel = scriptPaths[idx];
+    const abs = resolveSeedPath(manifest.projectRoot, rel);
+    const t0 = Date.now();
+    const r = await runSeedScript({
+      scriptAbsPath: abs,
+      projectRoot: manifest.projectRoot,
+      ctx,
+      projectName: manifest.name,
+    });
+    scripts.push({
+      file: rel,
+      exitCode: r.exitCode,
+      durationMs: Date.now() - t0,
+      stdoutTail: r.stdoutTail,
+      stderrTail: r.stderrTail,
+    });
+    if (r.exitCode !== 0) break;
+  }
+
+  return { json, scripts };
+}
 
 export async function runStateSeed(input: z.infer<typeof StateSeedInput>, ctx: ToolContext) {
   const manifest = await ctx.manifests.read(input.projectName);
   if (!manifest) {
     throw new Error(`project not initialized: ${input.projectName} (call env.init first)`);
   }
-  const seed = manifest.seed;
-  const jsonPaths = seed.json;
-  const scriptPaths = seed.scripts;
-  const jsonIdxs = filterIndices(jsonPaths.length, input.only?.json);
-  const scriptIdxs = filterIndices(scriptPaths.length, input.only?.scripts);
 
   const env = await resolveEnv(undefined, ctx.registry);
   if (!env || env.status !== 'ready') {
@@ -34,61 +103,14 @@ export async function runStateSeed(input: z.infer<typeof StateSeedInput>, ctx: T
     await envReset(env.envId, ctx.registry, false, null, input.projectName);
   }
 
-  const rabbitCreds = manifest.backends.rabbit && env.resolved.rabbitManagementUrl
-    ? {
-        user: manifest.backends.rabbit.user ?? DEFAULT_RABBIT_USER,
-        password: manifest.backends.rabbit.password ?? DEFAULT_RABBIT_PASSWORD,
-        managementUrl: env.resolved.rabbitManagementUrl,
-      }
-    : undefined;
-
-  const jsonResults: z.infer<typeof StateSeedResult>['json'] = [];
-  for (const idx of jsonIdxs) {
-    const rel = jsonPaths[idx];
-    const abs = resolveSeedPath(manifest.projectRoot, rel);
-    const t0 = Date.now();
-    const data = await readJsonSeedFile(abs);
-    const applied = await applyJsonSeed(data, env, rabbitCreds);
-    jsonResults.push({
-      file: rel,
-      mongo: applied.mongo,
-      redis: applied.redis,
-      rabbit: applied.rabbit,
-      durationMs: Date.now() - t0,
-    });
-  }
-
-  const scriptResults: z.infer<typeof StateSeedResult>['scripts'] = [];
-  for (const idx of scriptIdxs) {
-    const rel = scriptPaths[idx];
-    const abs = resolveSeedPath(manifest.projectRoot, rel);
-    const t0 = Date.now();
-    const r = await runSeedScript({
-      scriptAbsPath: abs,
-      projectRoot: manifest.projectRoot,
-      ctx,
-      projectName: input.projectName,
-    });
-    scriptResults.push({
-      file: rel,
-      exitCode: r.exitCode,
-      durationMs: Date.now() - t0,
-      stdoutTail: r.stdoutTail,
-      stderrTail: r.stderrTail,
-    });
-    if (r.exitCode !== 0) {
-      // Stop on first script failure so the AI sees the failing script's
-      // stderr in the partial result rather than a generic late error.
-      break;
-    }
-  }
+  const applied = await applyManifestSeed({ manifest, env, ctx, only: input.only });
 
   return {
     projectName: input.projectName,
     envId: env.envId,
     reset: input.reset,
-    json: jsonResults,
-    scripts: scriptResults,
+    json: applied.json,
+    scripts: applied.scripts,
   };
 }
 

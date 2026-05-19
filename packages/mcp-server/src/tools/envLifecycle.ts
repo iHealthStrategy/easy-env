@@ -11,6 +11,7 @@ import {
 } from '../core/envOps.js';
 import type { BackendsSpec } from '../core/backends.js';
 import { ProjectName } from '../schemas/manifest.js';
+import { applyManifestSeed } from './stateSeed.js';
 
 // --- env.up ----------------------------------------------------------------
 
@@ -23,6 +24,10 @@ export const EnvUpInput = z.object({
   // Rabbit is opt-in via the manifest; this flag lets callers skip it
   // explicitly (rare). Default false (= follow the manifest).
   withoutRabbit: z.boolean().default(false),
+  /** Auto-apply manifest.seed (json + scripts) once the env is ready.
+   *  'auto'  (default) — runs seed if the manifest has any seed paths declared
+   *  'skip'            — skip; caller can run state.seed manually later. */
+  seed: z.enum(['auto', 'skip']).default('auto'),
 });
 
 async function loadBackendsSpec(ctx: ToolContext, projectName: string, projectRoot: string): Promise<BackendsSpec> {
@@ -35,7 +40,13 @@ async function loadBackendsSpec(ctx: ToolContext, projectName: string, projectRo
 }
 
 export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolContext) {
-  const spec = await loadBackendsSpec(ctx, input.projectName, input.projectRoot);
+  // Load the manifest once: env.up needs backend spec, auto-seed needs the seed paths.
+  const manifest = await ctx.manifests.loadOrInit(input.projectName, input.projectRoot);
+  const spec: BackendsSpec = {
+    mongo: manifest.backends.mongo,
+    redis: manifest.backends.redis,
+    rabbit: manifest.backends.rabbit,
+  };
   const env = await envUp(spec, ctx.registry, {
     setActive: input.setActive,
     withoutMongo: input.withoutMongo,
@@ -43,6 +54,28 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
     withoutRabbit: input.withoutRabbit,
     projectName: input.projectName,
   });
+
+  // Auto-seed — runs only when (a) caller didn't opt out and (b) manifest
+  // declares at least one seed path. The whole point: "the AI already told
+  // us about these files via env.init; don't make it call state.seed again."
+  let seedResult: Awaited<ReturnType<typeof applyManifestSeed>> | null = null;
+  let seedSkippedReason: string | null = null;
+  const hasSeed = manifest.seed.json.length > 0 || manifest.seed.scripts.length > 0;
+  if (input.seed === 'skip') {
+    seedSkippedReason = 'caller passed seed:skip';
+  } else if (!hasSeed) {
+    seedSkippedReason = 'manifest has no seed paths declared';
+  } else {
+    try {
+      seedResult = await applyManifestSeed({ manifest, env, ctx });
+    } catch (err) {
+      // Don't fail the whole env.up on seed errors — the env itself is up
+      // and the caller can investigate / retry via state.seed. Surface the
+      // error in the response so the AI sees what went wrong.
+      seedSkippedReason = `seed failed: ${(err as Error).message}`;
+    }
+  }
+
   return {
     envId: env.envId,
     projectName: input.projectName,
@@ -60,13 +93,16 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
         : null,
     },
     labels: env.labels,
+    seed: seedResult
+      ? { applied: true, json: seedResult.json, scripts: seedResult.scripts }
+      : { applied: false, reason: seedSkippedReason },
   };
 }
 
 export const envUpToolDescription = {
   name: 'env.up',
   description:
-    "Provision a fresh isolated environment for a project using Testcontainers. Pass { projectName, projectRoot }; the daemon looks up the manifest written by env.init to learn which images and host ports to use. Returns envId + resolved URLs that downstream tools accept via envId. Sets this env as 'active' so subsequent tool calls default to it.",
+    "Provision a fresh isolated environment for a project using Testcontainers. Pass { projectName, projectRoot, seed?: 'auto'|'skip' }; the daemon looks up the manifest written by env.init to learn which images and host ports to use. When the manifest declares seed paths (seed.json / seed.scripts) and seed='auto' (default), env.up applies them automatically after the containers are ready — no separate state.seed call needed. Pass seed='skip' to opt out (e.g. when you want to inspect the empty env first, or re-seed manually with state.seed). Returns envId + resolved URLs + a `seed` field showing what was applied (or why it was skipped). Sets this env as 'active' so subsequent tool calls default to it.",
   inputSchema: EnvUpInput,
 };
 

@@ -24,6 +24,10 @@ export const MongoBackendManifest = z.object({
   // Single-node replica set name; presence triggers --replSet + rs.initiate
   // during env.up.
   replicaSet: z.string().min(1).optional(),
+  // Primary database name. Required for db.* tools (find/insert/update/delete);
+  // also used by env.reset to scope its dropDatabase. Without this set,
+  // db.* refuse to operate because they don't have a default db to target.
+  dbName: z.string().min(1).optional(),
 });
 
 export const RedisBackendManifest = z.object({

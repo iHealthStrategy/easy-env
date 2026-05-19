@@ -79,19 +79,45 @@ async function main() {
   let app: ChildProcess | null = null;
   let envId: string | null = null;
 
+  // Temp seed file used to exercise env.up's auto-seed path. Lives inside
+  // the fixture dir because seed paths in the manifest are resolved against
+  // projectRoot. Removed in finally so the fixture stays clean.
+  const SEED_FILE_REL = '.smoke-autoseed.json';
+  const SEED_FILE_ABS = path.join(MINI_ORDERS_DIR, SEED_FILE_REL);
+  await fs.writeFile(
+    SEED_FILE_ABS,
+    JSON.stringify({
+      mongo: {
+        mini: {
+          inventory: { mode: 'replace', docs: [{ _id: 'seeded-on-up', sku: 'autoseed', stock: 42 }] },
+        },
+      },
+    }),
+  );
+
   try {
     // ----- 1. env.init: register the project's manifest with daemon --------
+    // Declares dbName (regression for the zod-strip bug) and a seed path
+    // (so env.up's auto-seed branch has something to apply).
     const init = await runEnvInit(
-      { projectName: PROJECT_NAME, projectRoot: PROJECT_ROOT, mongo: { image: 'mongo:6' }, redis: { image: 'redis:7-alpine' } },
+      {
+        projectName: PROJECT_NAME,
+        projectRoot: PROJECT_ROOT,
+        mongo: { image: 'mongo:6', dbName: 'mini' },
+        redis: { image: 'redis:7-alpine' },
+        seed: { json: [SEED_FILE_REL], scripts: [] },
+      },
       ctx,
     );
     assert(init.projectName === PROJECT_NAME, 'env.init should echo back projectName');
-    console.log('  ✓ env.init');
+    assert(init.backends.mongo?.dbName === 'mini', 'env.init must persist dbName (manifest schema regression)');
+    assert(init.seed?.json[0] === SEED_FILE_REL, 'env.init must persist seed paths');
+    console.log('  ✓ env.init (dbName + seed paths recorded)');
 
-    // ----- 2. env.up: spawn fresh isolated containers ----------------------
+    // ----- 2. env.up: spawn fresh isolated containers + auto-seed ----------
     console.log('  env.up: spawning fresh mongo + redis (Testcontainers)...');
     const up = await runEnvUp(
-      { projectName: PROJECT_NAME, projectRoot: PROJECT_ROOT, setActive: true, withoutMongo: false, withoutRedis: false, withoutRabbit: false },
+      { projectName: PROJECT_NAME, projectRoot: PROJECT_ROOT, setActive: true, withoutMongo: false, withoutRedis: false, withoutRabbit: false, seed: 'auto' },
       ctx,
     );
     envId = up.envId;
@@ -99,7 +125,16 @@ async function main() {
     assert(up.status === 'ready', 'env.up should reach ready');
     assert(up.resolved.mongoUrl, 'mongo url present');
     assert(up.resolved.redisUrl, 'redis url present');
-    console.log('  ✓ env.up');
+    assert(up.resolved.dbName === 'mini', 'env.up should resolve dbName from manifest');
+    assert(up.seed.applied === true, `env.up should auto-apply seed; got ${JSON.stringify(up.seed)}`);
+    assert(up.seed.json?.[0]?.mongo[0]?.inserted === 1, 'auto-seed should have inserted the inventory doc');
+    console.log('  ✓ env.up (auto-seed applied 1 doc)');
+
+    // Verify the seeded doc is actually queryable via db.find — proves the
+    // auto-seed path didn't just report success but really wrote to mongo.
+    const autoSeedFind = await runDbFind({ envId, collection: 'inventory', query: { _id: 'seeded-on-up' }, limit: 1 }, ctx);
+    assert(autoSeedFind.count === 1, 'auto-seeded doc should be queryable via db.find');
+    console.log('  ✓ auto-seeded doc visible via db.find');
 
     // ----- 3. env.list / env.status -----------------------------------------
     const list = await runEnvList({}, ctx);
@@ -248,6 +283,8 @@ async function main() {
       console.log(`  cleaning up env ${envId}...`);
       await runEnvDown({ envId }, ctx).catch((e) => console.error('  env.down error:', e.message));
     }
+    // Remove the temp seed file we wrote into the fixture dir.
+    await fs.rm(SEED_FILE_ABS, { force: true });
   }
 }
 

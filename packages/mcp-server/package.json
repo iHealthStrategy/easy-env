@@ -19,10 +19,11 @@
     "build": "tsc",
     "start": "node dist/src/server.js",
     "daemon": "node dist/src/daemon/start.js",
-    "test": "npm run build && node dist/test/daemon-api.js && node dist/test/mcp-handshake.js && node dist/test/vars-declare.js",
+    "test": "npm run build && node dist/test/daemon-api.js && node dist/test/mcp-handshake.js && node dist/test/vars-declare.js && node dist/test/manifest-roundtrip.js",
     "test:daemon": "node dist/test/daemon-api.js",
     "test:handshake": "node dist/test/mcp-handshake.js",
     "test:vars": "node dist/test/vars-declare.js",
+    "test:manifest": "node dist/test/manifest-roundtrip.js",
     "smoke": "node dist/test/smoke.js"
   },
   "dependencies": {

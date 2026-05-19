@@ -32,7 +32,9 @@ async function withMongo<T>(
   const env = await ensureManagedEnv(envId, ctx);
   if (!env.resolved.dbName) {
     throw new Error(
-      `db.* tools require backends.mongo.dbName to be set in the project's easy-env.json — easy-env no longer assumes a default dbName. (envId=${env.envId})`,
+      `db.* tools require a mongo dbName, but env ${env.envId} has none in resolved (${JSON.stringify(env.resolved)}). ` +
+        `Fix: call env.init with { mongo: { dbName: "<your-db>" } } so the daemon manifest records it, then env.down + env.up to apply. ` +
+        `Note: easy-env's daemon does NOT read the project's easy-env.json — the AI is responsible for pushing dbName via env.init.`,
     );
   }
   const client = await MongoClient.connect(env.resolved.mongoUrl!);

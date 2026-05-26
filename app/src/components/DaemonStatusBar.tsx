@@ -71,11 +71,9 @@ export function DaemonStatusBar() {
       {status && (
         <div className="daemon-bar-meta">
           <code className="daemon-bar-url" title={status.url}>{status.url}</code>
-          {(status.pid || status.version) && (
+          {status.pid && (
             <div className="daemon-bar-meta-line">
-              {status.pid && <>pid <code>{status.pid}</code></>}
-              {status.pid && status.version && <span className="sep">·</span>}
-              {status.version && <code>v{status.version}</code>}
+              pid <code>{status.pid}</code>
             </div>
           )}
         </div>

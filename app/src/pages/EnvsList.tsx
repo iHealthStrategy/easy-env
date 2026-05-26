@@ -14,7 +14,7 @@ export function EnvsList() {
         <h2>环境</h2>
         <span className="meta">
           {health.data ? (
-            <>守护进程 v{health.data.version} · 已运行 {Math.floor(health.data.uptimeMs / 1000)}s</>
+            <>守护进程已运行 {Math.floor(health.data.uptimeMs / 1000)}s</>
           ) : (
             <>守护进程离线</>
           )}

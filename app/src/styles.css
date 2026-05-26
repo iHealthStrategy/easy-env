@@ -537,26 +537,23 @@ select option { background: var(--bg-2); color: var(--fg); }
   -webkit-app-region: drag;
   app-region: drag;
 }
+/* The card is just the content container — no inner border, no shadow,
+   no rounded frame-in-a-frame. macOS already paints the window chrome;
+   nesting another bordered card inside looks like two windows. */
 .updater-card {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  background: transparent;
 }
 .updater-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 18px 22px;
-  border-bottom: 1px solid var(--border);
+  padding: 4px 4px 14px;
 }
-.updater-header.tone-info  { background: linear-gradient(180deg, rgba(79,140,255,0.10), transparent); }
-.updater-header.tone-ok    { background: linear-gradient(180deg, rgba(34,197,94,0.10), transparent); }
-.updater-header.tone-error { background: linear-gradient(180deg, rgba(239,68,68,0.10), transparent); }
+/* Header tone is conveyed by the icon alone now — the gradient
+   backgrounds were noisy and made the small window feel busy. */
 .updater-icon  { font-size: 22px; line-height: 1; }
 .updater-title { font-size: 16px; font-weight: 600; margin: 0; }
 .updater-body {
@@ -564,7 +561,7 @@ select option { background: var(--bg-2); color: var(--fg); }
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 18px 22px 20px;
+  padding: 0 4px 4px;
   overflow: auto;
 }
 .updater-desc { margin: 0; color: var(--fg-dim); font-size: 13px; line-height: 1.55; }

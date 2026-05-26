@@ -3,9 +3,10 @@
 // at hash #/update. Owns its own check/install loop (autoPoll: false)
 // because we want a deterministic user-driven flow per window open; the
 // main window already polls in the background.
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { formatBytes, IS_TAURI, useUpdater, type UpdaterPhase } from '../hooks/useUpdater';
 
 export function Updater() {
@@ -99,6 +100,7 @@ function UpdaterBody({ phase, onCheck, onInstall, onClose }: BodyProps) {
             </div>
           </div>
           <p className="updater-desc">下载完成后会自动重启应用。</p>
+          <SlowDownloadHint version={phase.update.version} />
         </Layout>
       );
     }
@@ -150,4 +152,32 @@ function Actions({ children }: { children: ReactNode }) {
 
 function Spinner() {
   return <div className="updater-spinner" aria-hidden />;
+}
+
+// Mainland China users hitting GitHub Releases over Fastly often get
+// 30–80 KB/s — even a 12 MB updater archive can take several minutes,
+// and the progress bar looks "stuck" to anyone who hasn't been told
+// that's normal. After 15 s in the downloading state we surface an
+// escape hatch: open the GitHub Release page in the user's default
+// browser so they can grab the DMG via whatever network path their
+// browser uses (corp proxy, VPN, scientific bridge, etc.). The
+// in-app updater keeps trying in the background regardless.
+function SlowDownloadHint({ version }: { version: string }) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setShow(true), 15_000);
+    return () => clearTimeout(t);
+  }, []);
+  if (!show) return null;
+  const url = `https://github.com/iHealthStrategy/easy-env/releases/tag/v${version}`;
+  const openInBrowser = () => {
+    if (!IS_TAURI) return;
+    openUrl(url).catch(() => {});
+  };
+  return (
+    <div className="updater-slow-hint">
+      <span>下载较慢?GitHub 在国内常常只有几十 KB/s,可以直接在浏览器里下载 DMG 手动安装。</span>
+      <button type="button" className="link" onClick={openInBrowser}>打开发布页 ↗</button>
+    </div>
+  );
 }

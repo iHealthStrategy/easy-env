@@ -698,3 +698,36 @@ select option { background: var(--bg-2); color: var(--fg); }
 @keyframes updater-spin {
   to { transform: rotate(360deg); }
 }
+
+/* Slow-download escape hatch — fades in after 15s in the downloading
+   state. Lets users in regions with slow GitHub CDN paths bail out
+   into a browser-driven manual install. */
+.updater-slow-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-top: 4px;
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  line-height: 1.5;
+  animation: updater-slow-hint-in 0.4s ease-out;
+}
+.updater-slow-hint button.link {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.updater-slow-hint button.link:hover { color: #7fb1ff; }
+@keyframes updater-slow-hint-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

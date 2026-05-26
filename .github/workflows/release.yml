@@ -225,7 +225,12 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git fetch origin master
-          git checkout -B master origin/master
+          # -f discards the working-tree releases/latest.json (we already
+          # copied the freshly-generated one into $TMP). Without -f the
+          # checkout aborts on "local changes would be overwritten" when
+          # the new manifest differs from master's current copy, which
+          # bit the v0.1.3 release.
+          git checkout -f -B master origin/master
 
           mkdir -p releases
           cp "$TMP/latest.json" releases/latest.json

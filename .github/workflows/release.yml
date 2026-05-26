@@ -22,13 +22,10 @@ name: release
 # Required repo secrets (Settings → Secrets and variables → Actions):
 #   TAURI_SIGNING_PRIVATE_KEY           full contents of ~/.tauri/easy-env-updater.key
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  password for the key (may be empty)
-#   RELEASE_BOT_TOKEN                   fine-grained PAT with Contents:read+write
-#                                       on this repo. Used instead of the
-#                                       auto-injected GITHUB_TOKEN because the
-#                                       iHealthStrategy org caps GITHUB_TOKEN
-#                                       scope below "read private repo", so
-#                                       actions/checkout 403s on a private
-#                                       repo clone.
+#
+# Repo is public, so the auto-injected GITHUB_TOKEN with the
+# `contents: write` permission below is enough for checkout, gh release
+# create, and `git push origin master`. No PAT needed.
 
 on:
   push:
@@ -71,12 +68,6 @@ jobs:
           # Need full history so we can push releases/latest.json
           # back to master from this same workspace.
           fetch-depth: 0
-          # Use the PAT instead of the auto-generated GITHUB_TOKEN
-          # because the iHealthStrategy org caps GITHUB_TOKEN scope
-          # below read-private-repo. Fine-grained PAT scoped to this
-          # repo's Contents:read+write is enough for both checkout
-          # and the later `git push origin master` step.
-          token: ${{ secrets.RELEASE_BOT_TOKEN }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -152,7 +143,7 @@ jobs:
 
       - name: Create GitHub Release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.tag.outputs.value }}"
           # If the release already exists (re-run / manual dispatch),
@@ -176,7 +167,7 @@ jobs:
       - name: Generate releases/latest.json
         working-directory: app
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p ../releases
           ./scripts/make-latest-json.sh "${{ steps.tag.outputs.value }}" > ../releases/latest.json
@@ -188,7 +179,7 @@ jobs:
         # We need to land latest.json on master, so cherry-pick a
         # one-shot worktree of master, copy the file in, commit, push.
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           # Copy the freshly generated manifest out of the workspace,

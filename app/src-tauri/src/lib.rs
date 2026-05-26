@@ -4,7 +4,6 @@
 
 mod daemon;
 mod docker;
-mod github;
 mod paths;
 mod skill;
 mod mcp_config;
@@ -89,15 +88,6 @@ fn mcp_unregister() -> Result<mcp_config::McpStatus, String> {
 #[tauri::command]
 fn paths_info() -> Result<paths::PathsInfo, String> {
     paths::info().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn github_token() -> Result<github::TokenResult, String> {
-    // Run on a worker thread because resolve() may shell out to `gh`,
-    // which can take tens of ms — keep the IPC reply channel free.
-    tokio::task::spawn_blocking(github::resolve)
-        .await
-        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -199,7 +189,6 @@ pub fn run() {
             mcp_unregister,
             paths_info,
             docker_status,
-            github_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

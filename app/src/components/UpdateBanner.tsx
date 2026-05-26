@@ -1,26 +1,18 @@
 // Top-of-window banner that announces an available self-update and lets
 // the user kick off download+install with one click. Runs only inside the
-// Tauri shell — in `vite dev` (browser) or when the updater plugin isn't
-// reachable we silently render nothing so the dev surface stays unchanged.
+// Tauri shell — in `vite dev` (browser) we silently render nothing so the
+// dev surface stays unchanged.
 //
-// Authentication model: the release artifacts live in a PRIVATE GitHub
-// repo. To avoid shipping a shared secret in the bundle, we resolve a
-// per-user GitHub token at runtime (gh CLI or $GITHUB_TOKEN) and inject
-// it as an Authorization header for every updater HTTP request. Users
-// without gh installed / authenticated get a friendly "no credentials"
-// banner instead of a silent failure.
-//
-// Updates themselves are verified by the minisign keypair configured
-// in plugins.updater.pubkey — Apple Developer ID is NOT required for
-// this flow. See app/scripts/make-latest-json.sh for the release flow.
+// Repo is public, so manifest + release assets are anonymously fetchable;
+// no GitHub token plumbing. Updates are verified by the minisign keypair
+// configured in plugins.updater.pubkey — Apple Developer ID is NOT
+// required for this flow. See app/scripts/make-latest-json.sh.
 import { useEffect, useState } from 'react';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { tauri } from '../api/tauri';
 
 type Phase =
   | { kind: 'idle' }
-  | { kind: 'no-credentials'; hint: string }
   | { kind: 'available'; update: Update }
   | { kind: 'downloading'; downloaded: number; total: number | null }
   | { kind: 'ready' }
@@ -47,23 +39,7 @@ export function UpdateBanner() {
 
     const probe = async () => {
       try {
-        // Per-user token — never embedded in the bundle. If the user
-        // has no gh login + no env var, surface a banner and skip the
-        // check entirely (no point trying to hit private endpoints).
-        const auth = await tauri.github.token();
-        if (!auth.token) {
-          if (alive) setPhase({ kind: 'no-credentials', hint: auth.hint ?? '' });
-          return;
-        }
-        const headers: Record<string, string> = {
-          Authorization: `Bearer ${auth.token}`,
-          // Both the raw.githubusercontent manifest fetch AND the
-          // /releases/assets/<id> binary download tolerate this Accept
-          // value. Raw URLs ignore it; the assets endpoint requires it
-          // for binary delivery. One header that works for both calls.
-          Accept: 'application/octet-stream',
-        };
-        const update = await check({ headers });
+        const update = await check();
         if (!alive) return;
         if (update?.available) {
           setPhase({ kind: 'available', update });
@@ -88,28 +64,6 @@ export function UpdateBanner() {
 
   if (!IS_TAURI || dismissed) return null;
   if (phase.kind === 'idle' || phase.kind === 'error') return null;
-
-  if (phase.kind === 'no-credentials') {
-    return (
-      <div className="docker-banner warn">
-        <span className="docker-banner-icon">🔑</span>
-        <div className="docker-banner-body">
-          <div className="docker-banner-title">无法检查更新:未配置 GitHub 凭证</div>
-          <div className="docker-banner-desc">
-            {phase.hint || '请运行 `gh auth login`,或在启动 easy-env 前导出 GITHUB_TOKEN。'}
-          </div>
-        </div>
-        <button
-          className="docker-banner-close"
-          onClick={() => setDismissed(true)}
-          aria-label="关闭"
-          title="本次会话不再提示"
-        >
-          ×
-        </button>
-      </div>
-    );
-  }
 
   const install = async () => {
     if (phase.kind !== 'available') return;

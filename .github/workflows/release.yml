@@ -112,7 +112,15 @@ jobs:
         working-directory: app
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # NOTE: the password secret is deliberately NOT wired here.
+          # The current updater key was generated with `--password ""`,
+          # so we want the env var unset (which Tauri treats as "no
+          # password"). Wiring a `secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+          # that happens to hold a stale value would cause Tauri to
+          # try-and-fail decrypt with the wrong password.
+          #
+          # If you ever rotate to a password-protected key, add the env
+          # var back AND make sure the secret matches the key's password.
         run: |
           if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
             echo "::error::TAURI_SIGNING_PRIVATE_KEY secret is not set on this repo" >&2

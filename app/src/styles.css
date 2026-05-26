@@ -61,10 +61,14 @@ code, pre { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 1
   margin: 0 16px 12px;
 }
 .sidebar .brand {
+  /* Positioning context for the NEW badge anchored to top-left. */
+  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0 16px 8px;
+  padding: 0 16px 12px;
+  gap: 4px;
 }
 .sidebar .brand img {
   width: 96px;
@@ -72,10 +76,51 @@ code, pre { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 1
   max-height: 96px;
   object-fit: contain;
   border-radius: 8px;
-  /* Let mousedown fall through to .brand so its data-tauri-drag-region
-     receives the event (the attribute only fires when event.target matches). */
+  /* Let mousedown fall through to .brand so its drag handler receives
+     the event (children with their own pointer events break delegation). */
   pointer-events: none;
   -webkit-user-drag: none;
+}
+.sidebar .brand-version {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-dim);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  /* Below the logo as a small stamp. The brand container is column-flex
+     so this just sits naturally under the image. */
+  pointer-events: none;
+}
+.sidebar .brand-new-badge {
+  /* Absolute over the brand corner — bright red pill so users notice
+     without it dominating the sidebar. */
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  z-index: 2;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #fff;
+  background: #ef4444;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 0 0 2px var(--bg-2), 0 2px 6px rgba(239, 68, 68, 0.45);
+  animation: brand-new-pulse 2.4s ease-in-out infinite;
+}
+.sidebar .brand-new-badge:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+}
+.sidebar .brand-new-badge:focus-visible {
+  outline: 2px solid #fca5a5;
+  outline-offset: 2px;
+}
+@keyframes brand-new-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 0 rgba(239, 68, 68, 0.55); }
+  50%      { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 6px rgba(239, 68, 68, 0); }
 }
 .sidebar nav a {
   display: block;
@@ -467,3 +512,189 @@ select option { background: var(--bg-2); color: var(--fg); }
 }
 .dot.ok { background: var(--green); box-shadow: 0 0 6px rgba(34,197,94,0.6); }
 .dot.off { background: var(--red); }
+
+/* ─── Updater window ────────────────────────────────────────────────
+   Dedicated WebviewWindow (label: update) that renders <Updater /> at
+   #/update. Single-purpose layout — no sidebar, no nav, just a focused
+   card centered in a small fixed window. */
+.updater-window {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--fg);
+  /* The window has overlay traffic lights; reserve space at the top so
+     the close/min buttons don't overlap the header card. */
+  padding: 28px 24px 24px;
+}
+/* Top strip lets the user drag the window from anywhere above the card. */
+.updater-drag {
+  position: absolute;
+  top: 0;
+  left: 76px; /* skip traffic-light cluster */
+  right: 0;
+  height: 28px;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.updater-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+.updater-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+}
+.updater-header.tone-info  { background: linear-gradient(180deg, rgba(79,140,255,0.10), transparent); }
+.updater-header.tone-ok    { background: linear-gradient(180deg, rgba(34,197,94,0.10), transparent); }
+.updater-header.tone-error { background: linear-gradient(180deg, rgba(239,68,68,0.10), transparent); }
+.updater-icon  { font-size: 22px; line-height: 1; }
+.updater-title { font-size: 16px; font-weight: 600; margin: 0; }
+.updater-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 22px 20px;
+  overflow: auto;
+}
+.updater-desc { margin: 0; color: var(--fg-dim); font-size: 13px; line-height: 1.55; }
+
+.updater-version-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  padding: 8px 0;
+}
+.updater-version {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 13.5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+}
+.updater-version.old { color: var(--fg-dim); }
+.updater-version.new {
+  color: var(--accent);
+  border-color: rgba(79, 140, 255, 0.45);
+  background: rgba(79, 140, 255, 0.08);
+  font-weight: 600;
+}
+.updater-arrow { color: var(--fg-dim); font-weight: 500; }
+
+.updater-notes {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  max-height: 140px;
+  overflow: auto;
+}
+.updater-notes-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+  margin-bottom: 6px;
+}
+.updater-notes pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--fg);
+}
+
+.updater-progress { display: flex; flex-direction: column; gap: 8px; }
+.updater-progress-track {
+  position: relative;
+  height: 8px;
+  background: var(--bg-3);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.updater-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), #7fb1ff);
+  border-radius: 999px;
+  transition: width 0.18s ease-out;
+}
+/* When contentLength is unknown the server didn't send it — fall back to
+   an indeterminate bar so the user still gets motion feedback. */
+.updater-progress-fill.indeterminate {
+  width: 35%;
+  background-size: 200% 100%;
+  animation: updater-progress-slide 1.4s linear infinite;
+}
+@keyframes updater-progress-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+.updater-progress-text {
+  font-size: 12.5px;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.updater-error {
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg);
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.updater-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+.updater-actions button {
+  min-width: 92px;
+}
+.updater-actions button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.updater-actions button.primary:hover {
+  background: #3b78ee;
+  border-color: #3b78ee;
+}
+
+/* Indeterminate spinner used while checking / restarting. Pure CSS so
+   we don't ship a spinner asset. */
+.updater-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2.5px solid var(--bg-3);
+  border-top-color: var(--accent);
+  animation: updater-spin 0.85s linear infinite;
+}
+@keyframes updater-spin {
+  to { transform: rotate(360deg); }
+}

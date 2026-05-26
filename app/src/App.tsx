@@ -1,16 +1,6 @@
+import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import type { MouseEvent } from 'react';
-import { NavLink, Route, Routes } from 'react-router-dom';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import logoUrl from './assets/logo.png';
-
-// Explicit drag handler — more reliable than the data-tauri-drag-region
-// attribute, which depends on Tauri's global mousedown delegation matching
-// event.target exactly (so children with their own pointer events break it).
-function startDrag(e: MouseEvent) {
-  if (e.buttons !== 1) return;
-  if (!('__TAURI_INTERNALS__' in window || '__TAURI__' in window)) return;
-  getCurrentWindow().startDragging().catch(() => {});
-}
 import { EnvsList } from './pages/EnvsList';
 import { EnvDetail } from './pages/EnvDetail';
 import { SnapshotsList } from './pages/SnapshotsList';
@@ -20,17 +10,45 @@ import { DiffDetail } from './pages/DiffDetail';
 import { McpService } from './pages/McpService';
 import { Variables } from './pages/Variables';
 import { Settings } from './pages/Settings';
+import { Updater } from './pages/Updater';
 import { DaemonStatusBar } from './components/DaemonStatusBar';
 import { DockerBanner } from './components/DockerBanner';
-import { UpdateBanner } from './components/UpdateBanner';
+import { BrandHeader } from './components/BrandHeader';
+import { IS_TAURI, useUpdater } from './hooks/useUpdater';
+
+// Explicit drag handler — more reliable than data-tauri-drag-region,
+// which depends on Tauri's mousedown delegation matching event.target.
+function startDrag(e: MouseEvent) {
+  if (e.buttons !== 1) return;
+  if (!IS_TAURI) return;
+  getCurrentWindow().startDragging().catch(() => {});
+}
 
 export default function App() {
+  const { pathname } = useLocation();
+
+  // The dedicated update window loads the same bundle but at #/update.
+  // Render only the Updater there — no sidebar / nav / daemon chrome.
+  if (pathname === '/update') {
+    return (
+      <Routes>
+        <Route path="/update" element={<Updater />} />
+      </Routes>
+    );
+  }
+
+  return <MainShell />;
+}
+
+function MainShell() {
+  // Main window owns the auto-poll. The update window does its own
+  // on-demand check (autoPoll: false) so we don't double-poll.
+  const { hasUpdate } = useUpdater({ autoPoll: true });
+
   return (
     <div className="app">
       <aside className="sidebar">
-        <div className="brand" onMouseDown={startDrag}>
-          <img src={logoUrl} alt="easy-env" width={96} height={96} />
-        </div>
+        <BrandHeader hasUpdate={hasUpdate} />
         <nav>
           <NavLink to="/" end>环境</NavLink>
           <NavLink to="/vars">变量</NavLink>
@@ -43,7 +61,6 @@ export default function App() {
       </aside>
       <main className="main">
         <div className="drag-strip" onMouseDown={startDrag} />
-        <UpdateBanner />
         <DockerBanner />
         <Routes>
           <Route path="/" element={<EnvsList />} />

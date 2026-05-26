@@ -12,6 +12,8 @@ use std::sync::Mutex;
 use tauri::Manager;
 #[allow(unused_imports)]
 use tauri::Emitter;
+use tauri::menu::{AboutMetadata, MenuBuilder, SubmenuBuilder};
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 pub struct AppState {
     pub daemon: Mutex<daemon::DaemonHandle>,
@@ -90,6 +92,42 @@ fn paths_info() -> Result<paths::PathsInfo, String> {
     paths::info().map_err(|e| e.to_string())
 }
 
+// Open (or focus) the dedicated update window. Called by:
+//  - the brand-area "new" badge in the React sidebar
+//  - the native "更新 → 检查更新…" menu item
+// Kept in Rust so both entry points hit the same window-creation code
+// and we never end up with two stacked update windows.
+fn ensure_update_window(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
+    if let Some(w) = app.get_webview_window("update") {
+        w.show()?;
+        w.set_focus()?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(
+        app,
+        "update",
+        // HashRouter on the frontend dispatches to <Updater /> for this path
+        // — same bundle, no second entry point.
+        WebviewUrl::App("index.html#/update".into()),
+    )
+    .title("软件更新 — easy-env")
+    .inner_size(520.0, 420.0)
+    .min_inner_size(440.0, 360.0)
+    .resizable(false)
+    .minimizable(false)
+    .maximizable(false)
+    .center()
+    .title_bar_style(tauri::TitleBarStyle::Overlay)
+    .hidden_title(true)
+    .build()?;
+    Ok(())
+}
+
+#[tauri::command]
+fn open_update_window(app: tauri::AppHandle) -> Result<(), String> {
+    ensure_update_window(&app).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn docker_status() -> Result<docker::DockerStatus, String> {
     // Run the blocking probe on a worker thread so the IPC reply channel
@@ -162,6 +200,58 @@ pub fn run() {
         .manage(AppState {
             daemon: Mutex::new(daemon::DaemonHandle::new()),
         })
+        // Build the native menu bar (macOS app menu + standard Edit menu +
+        // a small Help submenu hosting "检查更新…"). Set in `setup` rather
+        // than via `.menu()` on the builder so we can use the AppHandle
+        // for predefined items that need it (about, services, etc.).
+        .setup(|app| {
+            let handle = app.handle();
+            let app_menu = SubmenuBuilder::new(handle, "easy-env")
+                .about(Some(AboutMetadata {
+                    name: Some("easy-env".into()),
+                    version: Some(env!("CARGO_PKG_VERSION").into()),
+                    ..Default::default()
+                }))
+                .separator()
+                .services()
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
+                .build()?;
+            let edit_menu = SubmenuBuilder::new(handle, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+            let view_menu = SubmenuBuilder::new(handle, "View")
+                .fullscreen()
+                .build()?;
+            let window_menu = SubmenuBuilder::new(handle, "Window")
+                .minimize()
+                .build()?;
+            // Custom submenu — IDs are referenced in on_menu_event below.
+            // Keep them short and stable; the strings are not localized.
+            let help_menu = SubmenuBuilder::new(handle, "帮助")
+                .text("check-update", "检查更新…")
+                .build()?;
+            let menu = MenuBuilder::new(handle)
+                .items(&[&app_menu, &edit_menu, &view_menu, &window_menu, &help_menu])
+                .build()?;
+            app.set_menu(menu)?;
+            app.on_menu_event(|app, event| {
+                if event.id().as_ref() == "check-update" {
+                    let _ = ensure_update_window(app);
+                }
+            });
+            Ok(())
+        })
         // Tear down the daemon when the main window is closed. Keeps Docker
         // containers from being orphaned past app shutdown — the daemon itself
         // sweeps them via SIGTERM.
@@ -189,6 +279,7 @@ pub fn run() {
             mcp_unregister,
             paths_info,
             docker_status,
+            open_update_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

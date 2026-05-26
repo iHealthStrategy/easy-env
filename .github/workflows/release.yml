@@ -218,11 +218,18 @@ jobs:
           mkdir -p releases
           cp "$TMP/latest.json" releases/latest.json
 
-          if git diff --quiet -- releases/latest.json; then
+          # Stage first, then check the *index* for differences. Plain
+          # `git diff` ignores untracked files, so on the very first
+          # release (when master has no releases/latest.json yet) it
+          # silently reports "no changes" and skips the commit. Bug
+          # surfaced as v0.1.1: artifact existed, manifest never landed,
+          # the updater endpoint returned 404. Comparing against HEAD
+          # via `git diff --cached` covers both first-add and updates.
+          git add releases/latest.json
+          if git diff --cached --quiet -- releases/latest.json; then
             echo "no changes to releases/latest.json; skipping commit"
             exit 0
           fi
 
-          git add releases/latest.json
           git commit -m "release: update releases/latest.json for ${{ steps.tag.outputs.value }}"
           git push origin master

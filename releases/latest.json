@@ -1,0 +1,11 @@
+{
+  "version": "0.1.1",
+  "notes": "Fix Docker/Node detection when launched from Finder/Dock",
+  "pub_date": "2026-05-26T13:54:00Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTOXgzeFg3SFN6aVBYUWRGOVNEL25XM1BIVzJvZThsdjlxSE1FSmZ1b1hFL1FkRmlsaEVPZ0pVdnNSayt5N2xLdC92dmRaTXZNcktmelhTZVFyRTNMYXFFUHlnOHF4eHc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5ODAzNjY0CWZpbGU6ZWFzeS1lbnYuYXBwLnRhci5negpuQ21kWTVqRXdReVdXa1VFZnhlQzRJbzFCTUt5QTlzQzd2a0h4MCthd1BGWFB1c2pJQnRFSUdIUXZtOXVnekVqQnZ4Y2liTXRJRjYvSjFONUo5UTRDQT09Cg==",
+      "url": "https://github.com/iHealthStrategy/easy-env/releases/download/v0.1.1/easy-env.app.tar.gz"
+    }
+  }
+}

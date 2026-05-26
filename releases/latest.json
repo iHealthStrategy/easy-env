@@ -1,11 +1,11 @@
 {
-  "version": "0.1.3",
-  "notes": "Bundle mcp-server inside the .app so packaged installs can run the daemon and register MCP / skills.",
-  "pub_date": "2026-05-26T14:30:00Z",
+  "version": "0.1.4",
+  "notes": "",
+  "pub_date": "2026-05-26T14:59:08Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTOXgzeFg3SFN6aU5sVGpMcytoU2FyYTBPZWFXME1GazJ6M0ZRenFDUEg4WjBMRUdCZUtLWmVHck9xbmFuYVJ5ZXhLY01tS0RvaVMyZzhtMnFZYkJwZXF2M1dlUzZUclFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5ODA1Nzg1CWZpbGU6ZWFzeS1lbnYuYXBwLnRhci5negpOc3FaTUY5QXhLY3d5eXc0VHk1VnNDOHdWWWxYSFRuVGdsbjMwaitEZXlGZFNWamQ4b3dCeWwxclBseFZ3aURsSUR1RWtIdWFKa2ZBTXRSQ09hU3NBUT09Cg==",
-      "url": "https://github.com/iHealthStrategy/easy-env/releases/download/v0.1.3/easy-env.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTOXgzeFg3SFN6aUF2cVlBVkxvOWtjU21IdUZBWVZKWERiRDFZVlh4d3Z6cG9RLzNRTjZ5bVRDRUVWMkxlVUN3dHR1dHNuYktBTlRvQ09sYzhBOXNKRGQxOUdGclhoaXdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5ODA3NTM3CWZpbGU6ZWFzeS1lbnYuYXBwLnRhci5negp0WEU2NmpVS2x1SjhjWjVmOFJFVy9YQ0hsTjZ0VE5nVmkyYjVQdGZ3L1cwVUlqKzRQTVRQaUdpc0l1NldRNFJwa1gvYXFibHJKUEUxRDdRY01GT3dBZz09Cg==",
+      "url": "https://github.com/iHealthStrategy/easy-env/releases/download/v0.1.4/easy-env.app.tar.gz"
     }
   }
 }

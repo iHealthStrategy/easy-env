@@ -1,6 +1,6 @@
 [package]
 name = "easy-env-app"
-version = "0.1.0"
+version = "0.1.1"
 description = "easy-env Tauri desktop app"
 authors = ["easy-env"]
 edition = "2021"
@@ -31,6 +31,12 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 once_cell = "1"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Repairs the PATH env var for GUI launches on macOS/Linux (Finder/Dock
+# spawn apps from launchd, which strips /usr/local/bin, /opt/homebrew/bin,
+# nvm/volta paths — so `which docker` / `which node` come up empty unless
+# we re-read the user's shell config). Tauri-recommended fix; tracked at
+# https://github.com/tauri-apps/fix-path-env-rs.
+fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
 
 [features]
 # By default Tauri does not enable any features.

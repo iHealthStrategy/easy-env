@@ -128,12 +128,25 @@ jobs:
           # Find the actual filenames Tauri emitted. Architecture suffix
           # varies (aarch64 on macos-14, x86_64 on macos-13), so we
           # discover instead of hard-coding.
-          DMG=$(ls src-tauri/target/release/bundle/dmg/*-with-launcher.dmg | head -n1)
-          TARBALL=$(ls src-tauri/target/release/bundle/macos/*.app.tar.gz | head -n1)
-          SIGFILE="${TARBALL}.sig"
-          if [[ ! -f "$DMG" || ! -f "$TARBALL" || ! -f "$SIGFILE" ]]; then
-            echo "::error::missing one of: $DMG / $TARBALL / $SIGFILE" >&2
-            ls -la src-tauri/target/release/bundle/dmg/ src-tauri/target/release/bundle/macos/ || true
+          DMG=$(ls src-tauri/target/release/bundle/dmg/*-with-launcher.dmg 2>/dev/null | head -n1)
+          TARBALL=$(ls src-tauri/target/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -n1)
+          SIGFILE="${TARBALL:+${TARBALL}.sig}"
+          if [[ ! -f "$DMG" ]]; then
+            echo "::error::no -with-launcher.dmg found. Did repackage-dmg.sh run?" >&2
+            ls -la src-tauri/target/release/bundle/dmg/ || true
+            exit 1
+          fi
+          if [[ -z "$TARBALL" || ! -f "$TARBALL" ]]; then
+            echo "::error::no .app.tar.gz updater archive found." >&2
+            echo "::error::This means Tauri skipped the updater bundle. Most likely:" >&2
+            echo "::error::  - tauri.conf.json missing 'bundle.createUpdaterArtifacts: true' (required since Tauri 2.1)" >&2
+            echo "::error::  - or TAURI_SIGNING_PRIVATE_KEY env var not picked up at build time" >&2
+            ls -la src-tauri/target/release/bundle/macos/ || true
+            exit 1
+          fi
+          if [[ ! -f "$SIGFILE" ]]; then
+            echo "::error::tarball exists but .sig missing. Check TAURI_SIGNING_PRIVATE_KEY_PASSWORD matches the key's password (empty if you used --password '')." >&2
+            ls -la src-tauri/target/release/bundle/macos/ || true
             exit 1
           fi
           echo "version=$VER"           >> "$GITHUB_OUTPUT"

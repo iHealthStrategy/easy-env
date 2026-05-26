@@ -33,7 +33,7 @@
     "updater": {
       "active": true,
       "dialog": false,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU2MUYyMkVCMjEzMjI1NTMKUldSVEpUSWg2eUlmNXJwWW5RRkNyVTc2NlYwcmRrd3hiRCsyTUJyWFNNb3d6djhlWU9lbjhTeGwK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg4QjM3NEVDNTc3Q0M3QkQKUldTOXgzeFg3SFN6aVBnUFFoS0ZKeHNSYkVxd1FzeGRxcWhxQWZsYit2ZHpMUVl6YU12Q3dXNTMK",
       "endpoints": [
         "https://raw.githubusercontent.com/iHealthStrategy/easy-env/master/releases/latest.json"
       ]

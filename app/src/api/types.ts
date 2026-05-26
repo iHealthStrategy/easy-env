@@ -23,6 +23,7 @@ export interface ResolvedUrls {
 // Returned by GET /api/envs (env.list).
 export interface EnvListItem {
   envId: string;
+  projectName: string | null;
   createdAt: string;
   status: EnvStatus;
   resolved: ResolvedUrls;
@@ -41,6 +42,7 @@ export interface EnvListResponse {
 // Returned by GET /api/envs/:envId (env.status).
 export interface EnvDetailResponse {
   envId: string;
+  projectName: string | null;
   createdAt: string;
   status: EnvStatus;
   resolved: ResolvedUrls;
@@ -134,6 +136,11 @@ export interface ApiError {
 
 // ── projects ───────────────────────────────────────────────────────────────
 export interface ProjectSummary {
+  /** Slug used as the on-disk + URL key (`<name>__<rootHash>`). Always
+   *  use this — never `name` — when constructing routes, query keys, or
+   *  mutation IDs. Two worktrees of the same project share `name` but
+   *  have distinct `key`s. */
+  key: string;
   name: string;
   projectRoot: string;
   backends: {

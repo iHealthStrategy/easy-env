@@ -95,10 +95,20 @@ function key(envId: string, backend: BackendKind) {
   return `${envId}:${backend}`;
 }
 
-// Convert "EADDRINUSE" / docker port-allocation errors into a clear message
-// that names the port and the backend, and clean up the half-created
-// container that testcontainers left behind. Otherwise users see opaque
-// stack traces AND "Created" zombies pile up on every retry.
+// Identify the class of error that means "the fixed host port we asked
+// for is taken" — Docker phrases it a few different ways depending on
+// the platform / engine version. Used by the port-collision fallback
+// path (see spawnWithPortFallback) to decide whether to retry with a
+// dynamic port instead of bailing.
+function isPortBindError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /address already in use|bind for .* failed|port is already allocated/i.test(msg);
+}
+
+// Convert non-port spawn errors into a clearer message that names the
+// backend, and clean up the half-created container that testcontainers
+// left behind (port-bind failures otherwise leave a "Created" zombie
+// piling up on every retry).
 async function wrapSpawnError(
   envId: string,
   backend: BackendKind,
@@ -107,13 +117,45 @@ async function wrapSpawnError(
 ): Promise<never> {
   await dockerRemoveByEnvId(envId).catch(() => undefined);
   const msg = e instanceof Error ? e.message : String(e);
-  if (hostPort && /address already in use|bind for .* failed|port is already allocated/i.test(msg)) {
+  if (hostPort && isPortBindError(e)) {
     throw new Error(
       `${backend} container failed to bind host port ${hostPort}: port is already in use. ` +
       `Either stop the conflicting process, or change backends.${backend}.port in easy-env.json.`,
     );
   }
   throw e instanceof Error ? e : new Error(msg);
+}
+
+/**
+ * Run `attempt(hostPort)`. If it fails with a port-bind error AND a
+ * fixed hostPort was requested, clean up the half-created container and
+ * retry once with `undefined` so testcontainers picks a free port. This
+ * is what makes two worktrees of the same project able to env.up in
+ * parallel even when the manifest hard-codes a port — the first one
+ * grabs the fixed port, subsequent ones quietly fall back to dynamic.
+ */
+async function spawnWithPortFallback<T>(
+  envId: string,
+  backend: BackendKind,
+  hostPort: number | undefined,
+  attempt: (port: number | undefined) => Promise<T>,
+): Promise<T> {
+  try {
+    return await attempt(hostPort);
+  } catch (e) {
+    if (hostPort && isPortBindError(e)) {
+      await dockerRemoveByEnvId(envId).catch(() => undefined);
+      console.error(
+        `[easy-env] ${backend}: host port ${hostPort} is taken; falling back to a dynamic port.`,
+      );
+      try {
+        return await attempt(undefined);
+      } catch (e2) {
+        return wrapSpawnError(envId, backend, undefined, e2);
+      }
+    }
+    return wrapSpawnError(envId, backend, hostPort, e);
+  }
 }
 
 export async function spawnMongo(opts: {
@@ -125,10 +167,10 @@ export async function spawnMongo(opts: {
    *  <name> and we exec rs.initiate() against it once it's listening. */
   replicaSet?: string;
 }): Promise<ContainerHandle> {
-  const portBinding = opts.hostPort
-    ? { container: MONGO_PORT, host: opts.hostPort }
-    : MONGO_PORT;
-  try {
+  return spawnWithPortFallback(opts.envId, 'mongo', opts.hostPort, async (port) => {
+    const portBinding = port
+      ? { container: MONGO_PORT, host: port }
+      : MONGO_PORT;
     let builder = new GenericContainer(opts.image)
       .withLabels(opts.labels)
       .withExposedPorts(portBinding)
@@ -156,9 +198,7 @@ export async function spawnMongo(opts: {
       await initiateReplicaSet(container, opts.replicaSet);
     }
     return handle;
-  } catch (e) {
-    return wrapSpawnError(opts.envId, 'mongo', opts.hostPort, e);
-  }
+  });
 }
 
 /**
@@ -213,10 +253,10 @@ export async function spawnRedis(opts: {
   labels: Record<string, string>;
   hostPort?: number;
 }): Promise<ContainerHandle> {
-  const portBinding = opts.hostPort
-    ? { container: REDIS_PORT, host: opts.hostPort }
-    : REDIS_PORT;
-  try {
+  return spawnWithPortFallback(opts.envId, 'redis', opts.hostPort, async (port) => {
+    const portBinding = port
+      ? { container: REDIS_PORT, host: port }
+      : REDIS_PORT;
     const container = await new GenericContainer(opts.image)
       .withLabels(opts.labels)
       .withExposedPorts(portBinding)
@@ -231,9 +271,7 @@ export async function spawnRedis(opts: {
     };
     liveContainers.set(key(opts.envId, 'redis'), container);
     return handle;
-  } catch (e) {
-    return wrapSpawnError(opts.envId, 'redis', opts.hostPort, e);
-  }
+  });
 }
 
 export interface RabbitSpawn {
@@ -257,19 +295,23 @@ export async function spawnRabbit(opts: {
 }): Promise<RabbitSpawn> {
   const user = opts.user ?? DEFAULT_RABBIT_USER;
   const password = opts.password ?? DEFAULT_RABBIT_PASSWORD;
-  const amqpBinding = opts.hostPort
-    ? { container: RABBIT_AMQP_PORT, host: opts.hostPort }
-    : RABBIT_AMQP_PORT;
   // Only expose the management port for *-management images (the others
   // don't run the plugin, and exposing it would fail the readiness check
   // because nothing listens on 15672).
   const isManagement = /-management(?:-|$)/.test(opts.image) || /:management$/.test(opts.image);
-  const mgmtBinding = isManagement
-    ? (opts.managementHostPort
-        ? { container: RABBIT_MGMT_PORT, host: opts.managementHostPort }
-        : RABBIT_MGMT_PORT)
-    : undefined;
-  try {
+  return spawnWithPortFallback(opts.envId, 'rabbit', opts.hostPort, async (amqpPort) => {
+    const amqpBinding = amqpPort
+      ? { container: RABBIT_AMQP_PORT, host: amqpPort }
+      : RABBIT_AMQP_PORT;
+    // When the AMQP port fell back to dynamic, also drop the fixed
+    // mgmt port — odds are it would clash for the same reason and a
+    // single-port retry can't recover from a two-port collision.
+    const mgmtHostPort = amqpPort ? opts.managementHostPort : undefined;
+    const mgmtBinding = isManagement
+      ? (mgmtHostPort
+          ? { container: RABBIT_MGMT_PORT, host: mgmtHostPort }
+          : RABBIT_MGMT_PORT)
+      : undefined;
     let container = new GenericContainer(opts.image)
       .withLabels(opts.labels)
       .withEnvironment({
@@ -296,9 +338,7 @@ export async function spawnRabbit(opts: {
       password,
       managementHostPort: mgmtBinding ? started.getMappedPort(RABBIT_MGMT_PORT) : undefined,
     };
-  } catch (e) {
-    return wrapSpawnError(opts.envId, 'rabbit', opts.hostPort, e);
-  }
+  });
 }
 
 export async function stopContainer(envId: string, backend: BackendKind): Promise<void> {

@@ -28,7 +28,9 @@ export const queryKeys = {
   diffs: ['diffs'] as const,
   diff: (id: string) => ['diffs', id] as const,
   projects: ['projects'] as const,
-  vars: (projectName: string) => ['vars', projectName] as const,
+  // The vars-cache key is the project slug, NOT the human projectName,
+  // so two worktrees with the same projectName don't share cache entries.
+  vars: (projectKey: string) => ['vars', projectKey] as const,
 };
 
 export const useHealth = (opts?: { refetchInterval?: number }) =>
@@ -92,46 +94,46 @@ export const useProjects = () =>
 export function useDeleteProject() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (projectName: string) => api.deleteProject(projectName),
-    onSuccess: (_, projectName) => {
+    mutationFn: (projectKey: string) => api.deleteProject(projectKey),
+    onSuccess: (_, projectKey) => {
       qc.invalidateQueries({ queryKey: queryKeys.projects });
-      qc.removeQueries({ queryKey: queryKeys.vars(projectName) });
+      qc.removeQueries({ queryKey: queryKeys.vars(projectKey) });
     },
   });
 }
 
-export const useVars = (projectName: string | null) =>
+export const useVars = (projectKey: string | null) =>
   useQuery({
-    queryKey: projectName ? queryKeys.vars(projectName) : ['vars', 'none'],
-    queryFn: () => api.listVars(projectName!),
-    enabled: !!projectName,
+    queryKey: projectKey ? queryKeys.vars(projectKey) : ['vars', 'none'],
+    queryFn: () => api.listVars(projectKey!),
+    enabled: !!projectKey,
     refetchInterval: LIVE_REFETCH_MS,
   });
 
-export function useSetVar(projectName: string, projectRoot: string) {
+export function useSetVar(projectKey: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ name, value }: { name: string; value: VarValue }) =>
-      api.setVar(projectName, projectRoot, name, value),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.vars(projectName) }),
+      api.setVar(projectKey, name, value),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.vars(projectKey) }),
   });
 }
 
-export function useUnsetVar(projectName: string) {
+export function useUnsetVar(projectKey: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => api.unsetVar(projectName, name),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.vars(projectName) }),
+    mutationFn: (name: string) => api.unsetVar(projectKey, name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.vars(projectKey) }),
   });
 }
 
-export function useDeclareVars(projectName: string, projectRoot: string) {
+export function useDeclareVars(projectKey: string, projectName: string, projectRoot: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ items, removeUndeclared = false }: { items: VarsDeclareItem[]; removeUndeclared?: boolean }) =>
       api.declareVars(projectName, projectRoot, items, removeUndeclared),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.vars(projectName) });
+      qc.invalidateQueries({ queryKey: queryKeys.vars(projectKey) });
       qc.invalidateQueries({ queryKey: queryKeys.projects });
     },
   });

@@ -19,10 +19,19 @@ const VarValueSchema: z.ZodType<VarValue> = z.union([
 
 export const VarsListInput = z.object({
   projectName: ProjectName,
+  // Optional: passed by the MCP server (auto-injected from easy-env.json).
+  // When present, the daemon resolves to the slug deterministically; when
+  // absent (UI / older callers), it falls back to single-match lookup by
+  // projectName under ~/.easy-env/projects/.
+  projectRoot: z.string().min(1).optional(),
 });
 
 export async function runVarsList(input: z.infer<typeof VarsListInput>, ctx: ToolContext) {
-  const { variables, containers } = await resolveVars({ ctx, projectName: input.projectName });
+  const { variables, containers } = await resolveVars({
+    ctx,
+    projectName: input.projectName,
+    projectRoot: input.projectRoot,
+  });
   return {
     projectName: input.projectName,
     variables,
@@ -57,7 +66,7 @@ export async function runVarsSet(input: z.infer<typeof VarsSetInput>, ctx: ToolC
     });
     autoDeclared = true;
   }
-  await ctx.vars.set(input.projectName, input.name, input.value);
+  await ctx.vars.set(input.projectName, input.name, input.value, input.projectRoot);
   return {
     projectName: input.projectName,
     name: input.name,
@@ -78,11 +87,12 @@ export const varsSetToolDescription = {
 
 export const VarsUnsetInput = z.object({
   projectName: ProjectName,
+  projectRoot: z.string().min(1).optional(),
   name: z.string().min(1),
 });
 
 export async function runVarsUnset(input: z.infer<typeof VarsUnsetInput>, ctx: ToolContext) {
-  await ctx.vars.unset(input.projectName, input.name);
+  await ctx.vars.unset(input.projectName, input.name, input.projectRoot);
   return { projectName: input.projectName, name: input.name, cleared: true };
 }
 

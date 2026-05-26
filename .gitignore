@@ -7,3 +7,17 @@ dist/
 *.log
 .env
 .env.local
+
+# Local Claude Code session state — never committed.
+.claude/
+
+# Rust build artifacts.
+target/
+
+# Per-developer signing key state.
+*.p12
+*.p8
+.tauri/
+
+# Local sourced env files for release builds.
+*-signing.sh

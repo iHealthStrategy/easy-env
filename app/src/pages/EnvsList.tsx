@@ -32,6 +32,7 @@ export function EnvsList() {
               <thead>
                 <tr>
                   <th>envId</th>
+                  <th>项目</th>
                   <th>状态</th>
                   <th>创建时间</th>
                   <th>Mongo</th>
@@ -52,6 +53,7 @@ export function EnvsList() {
                         <code>{shortId(e.envId, 16)}</code>{' '}
                         {isActive && <span className="badge active">活跃</span>}
                       </td>
+                      <td>{e.projectName ? <code>{e.projectName}</code> : <span className="meta">—</span>}</td>
                       <td>
                         <span className={`badge ${e.status}`}>{envStatusLabel(e.status)}</span>
                       </td>

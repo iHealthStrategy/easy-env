@@ -13,6 +13,7 @@ import { FsStore } from '../src/store/fsStore.js';
 import { buildContext } from '../src/core/context.js';
 import { runEnvInit } from '../src/tools/envInit.js';
 import { ProjectManifestStore } from '../src/store/projectManifestStore.js';
+import { slugFor } from '../src/store/projectKey.js';
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`MANIFEST ROUND-TRIP FAIL: ${msg}`);
@@ -60,7 +61,13 @@ async function main() {
       console.log('  ✓ env.init returns dbName in response');
 
       // 2. The manifest on disk has dbName --------------------------------
-      const manifestPath = path.join(home, 'projects', projectName, 'manifest.json');
+      // Slug-keyed layout: ~/.easy-env/projects/<name>__<rootHash>/.
+      const manifestPath = path.join(
+        home,
+        'projects',
+        slugFor(projectName, projectRoot),
+        'manifest.json',
+      );
       const raw = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
       assert(raw.backends?.mongo?.dbName === 'app_db', `dbName missing on disk; got: ${JSON.stringify(raw.backends?.mongo)}`);
       assert(raw.backends?.mongo?.replicaSet === 'rs0', 'replicaSet missing on disk');

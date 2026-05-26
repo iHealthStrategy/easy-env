@@ -99,7 +99,7 @@ export async function runVarsDeclare(
   await ctx.manifests.write({ ...manifest, variables: finalList });
 
   // 4. Write values for items that carry one and aren't already user-set.
-  const userValues = await ctx.vars.readAll(input.projectName);
+  const userValues = await ctx.vars.readAll(input.projectName, input.projectRoot);
   for (const item of byName.values()) {
     const r = results.find((x) => x.name === item.name);
     if (!r) continue;
@@ -111,7 +111,7 @@ export async function runVarsDeclare(
       r.valueSkippedReason = 'already-set';
       continue;
     }
-    await ctx.vars.set(input.projectName, item.name, item.value);
+    await ctx.vars.set(input.projectName, item.name, item.value, input.projectRoot);
     r.valueWritten = true;
   }
 

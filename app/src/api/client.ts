@@ -104,26 +104,33 @@ export const api = {
     request<DiffDetailResponse>(`/api/diffs/${encodeURIComponent(id)}`),
 
   // ── projects ─────────────────────────────────────────────────────────────
+  // `projectKey` is the slug returned in ProjectSummary.key — the daemon
+  // resolves it back to (projectName, projectRoot) before dispatching the
+  // underlying tool, so two worktrees with the same projectName never
+  // collide on these routes.
   listProjects: () => request<ProjectsListResponse>('/api/projects'),
-  deleteProject: (projectName: string) =>
+  deleteProject: (projectKey: string) =>
     request<{ projectName: string; deleted: boolean }>(
-      `/api/projects/${encodeURIComponent(projectName)}`,
+      `/api/projects/${encodeURIComponent(projectKey)}`,
       { method: 'DELETE' },
     ),
 
   // ── vars (per-project) ───────────────────────────────────────────────────
-  listVars: (projectName: string) =>
-    request<VarsListResponse>(`/api/projects/${encodeURIComponent(projectName)}/vars`),
-  setVar: (projectName: string, projectRoot: string, name: string, value: VarValue) =>
+  listVars: (projectKey: string) =>
+    request<VarsListResponse>(`/api/projects/${encodeURIComponent(projectKey)}/vars`),
+  setVar: (projectKey: string, name: string, value: VarValue) =>
     request<{ name: string; value: VarValue; source: 'user' }>(
-      `/api/projects/${encodeURIComponent(projectName)}/vars/${encodeURIComponent(name)}`,
-      { method: 'PUT', body: { value, projectRoot } },
+      `/api/projects/${encodeURIComponent(projectKey)}/vars/${encodeURIComponent(name)}`,
+      { method: 'PUT', body: { value } },
     ),
-  unsetVar: (projectName: string, name: string) =>
+  unsetVar: (projectKey: string, name: string) =>
     request<{ name: string; cleared: true }>(
-      `/api/projects/${encodeURIComponent(projectName)}/vars/${encodeURIComponent(name)}`,
+      `/api/projects/${encodeURIComponent(projectKey)}/vars/${encodeURIComponent(name)}`,
       { method: 'DELETE' },
     ),
+  // vars.declare still POSTs the real (projectName, projectRoot) because
+  // the daemon uses them to load/init the manifest — slugs alone can't
+  // express the "new worktree, no manifest yet" case.
   declareVars: (projectName: string, projectRoot: string, items: VarsDeclareItem[], removeUndeclared = false) =>
     request<VarsDeclareResponse>('/api/tools/vars.declare', {
       method: 'POST',

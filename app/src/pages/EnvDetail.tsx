@@ -22,6 +22,8 @@ export function EnvDetail() {
             <div className="card">
               <h3>状态</h3>
               <dl className="dl">
+                <dt>项目</dt>
+                <dd>{env.projectName ? <code>{env.projectName}</code> : <span className="meta">—</span>}</dd>
                 <dt>状态</dt>
                 <dd><span className={`badge ${env.status}`}>{envStatusLabel(env.status)}</span></dd>
                 <dt>创建时间</dt>

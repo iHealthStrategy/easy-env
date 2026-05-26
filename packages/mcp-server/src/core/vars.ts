@@ -33,6 +33,7 @@
 import type { ToolContext } from './context.js';
 import type { ManagedEnv } from '../schemas/env.js';
 import { type VarValue } from '../store/projectVarsStore.js';
+import { slugFor } from '../store/projectKey.js';
 
 export type VarSource = 'user' | 'unset';
 
@@ -63,6 +64,9 @@ export interface ResolveVarsResult {
 export interface ResolveVarsInput {
   ctx: ToolContext;
   projectName: string;
+  /** When supplied (MCP path), used to derive the exact slug; without it
+   *  the stores fall back to single-match resolution by projectName. */
+  projectRoot?: string;
 }
 
 interface ServiceVars {
@@ -146,7 +150,7 @@ export function interpolate(value: VarValue, env: ManagedEnv | null): VarValue {
 }
 
 export async function resolveVars(input: ResolveVarsInput): Promise<ResolveVarsResult> {
-  const { ctx, projectName } = input;
+  const { ctx, projectName, projectRoot } = input;
 
   // 1. Active env (used both for `containers` view and for template interpolation).
   const activeId = await ctx.registry.getActive();
@@ -154,9 +158,12 @@ export async function resolveVars(input: ResolveVarsInput): Promise<ResolveVarsR
 
   // 2. Manifest declarations + per-project values. Interpolate user values
   //    against the active env so `${mongo.url}/blog` becomes a concrete URL.
-  const manifest = await ctx.manifests.read(projectName);
+  //    When projectRoot is known we read by deterministic slug; otherwise
+  //    the stores fall back to a single-match scan by name.
+  const manifestKey = projectRoot ? slugFor(projectName, projectRoot) : projectName;
+  const manifest = await ctx.manifests.read(manifestKey);
   const declared = manifest?.variables ?? [];
-  const userValues = await ctx.vars.readAll(projectName);
+  const userValues = await ctx.vars.readAll(projectName, projectRoot);
 
   const variables: VarsView = {};
   for (const name of declared) {

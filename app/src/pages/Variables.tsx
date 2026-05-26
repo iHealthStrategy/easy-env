@@ -10,7 +10,10 @@ import {
 import { QueryState } from '../components/QueryState';
 import type { ContainersHandle, VarEntry, VarsDeclareItem, VarValue } from '../api/types';
 
-const LS_KEY = 'easy-env.web.selected-project';
+// Persisted UI state: the SLUG (ProjectSummary.key) of the project the
+// user last picked. Persisting the human name would be ambiguous now
+// that two worktrees can share it.
+const LS_KEY = 'easy-env.web.selected-project-key';
 
 export function Variables() {
   const projectsQuery = useProjects();
@@ -22,8 +25,8 @@ export function Variables() {
   useEffect(() => {
     const list = projectsQuery.data?.projects ?? [];
     if (list.length === 0) return;
-    const persisted = selected && list.find((p) => p.name === selected) ? selected : null;
-    const next = persisted ?? list[0].name;
+    const persisted = selected && list.find((p) => p.key === selected) ? selected : null;
+    const next = persisted ?? list[0].key;
     if (next !== selected) setSelected(next);
   }, [projectsQuery.data, selected]);
 
@@ -32,7 +35,7 @@ export function Variables() {
     if (selected) localStorage.setItem(LS_KEY, selected);
   }, [selected]);
 
-  const project = projectsQuery.data?.projects.find((p) => p.name === selected) ?? null;
+  const project = projectsQuery.data?.projects.find((p) => p.key === selected) ?? null;
 
   return (
     <>
@@ -71,13 +74,14 @@ export function Variables() {
                     onChange={(e) => setSelected(e.target.value)}
                   >
                     {data.projects.map((p) => (
-                      <option key={p.name} value={p.name}>
-                        {p.name}({p.variableCount} 个变量)
+                      <option key={p.key} value={p.key}>
+                        {p.name} — {p.projectRoot}({p.variableCount} 个变量)
                       </option>
                     ))}
                   </select>
                   {project && (
                     <DeleteProjectButton
+                      projectKey={project.key}
                       projectName={project.name}
                       projectRoot={project.projectRoot}
                       onDeleted={() => setSelected(null)}
@@ -86,7 +90,13 @@ export function Variables() {
                 </div>
               </div>
 
-              {project && <ProjectVariables projectName={project.name} projectRoot={project.projectRoot} />}
+              {project && (
+                <ProjectVariables
+                  projectKey={project.key}
+                  projectName={project.name}
+                  projectRoot={project.projectRoot}
+                />
+              )}
             </>
           );
         }}
@@ -95,8 +105,16 @@ export function Variables() {
   );
 }
 
-function ProjectVariables({ projectName, projectRoot }: { projectName: string; projectRoot: string }) {
-  const query = useVars(projectName);
+function ProjectVariables({
+  projectKey,
+  projectName,
+  projectRoot,
+}: {
+  projectKey: string;
+  projectName: string;
+  projectRoot: string;
+}) {
+  const query = useVars(projectKey);
   const [declareOpen, setDeclareOpen] = useState(false);
 
   return (
@@ -141,8 +159,7 @@ function ProjectVariables({ projectName, projectRoot }: { projectName: string; p
                           key={name}
                           name={name}
                           entry={entry}
-                          projectName={projectName}
-                          projectRoot={projectRoot}
+                          projectKey={projectKey}
                         />
                       ))}
                     </tbody>
@@ -156,6 +173,7 @@ function ProjectVariables({ projectName, projectRoot }: { projectName: string; p
 
       {declareOpen && (
         <DeclareModal
+          projectKey={projectKey}
           projectName={projectName}
           projectRoot={projectRoot}
           onClose={() => setDeclareOpen(false)}
@@ -168,18 +186,16 @@ function ProjectVariables({ projectName, projectRoot }: { projectName: string; p
 function VarRow({
   name,
   entry,
-  projectName,
-  projectRoot,
+  projectKey,
 }: {
   name: string;
   entry: VarEntry;
-  projectName: string;
-  projectRoot: string;
+  projectKey: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(formatForEdit(entry.value));
-  const setVar = useSetVar(projectName, projectRoot);
-  const unsetVar = useUnsetVar(projectName);
+  const setVar = useSetVar(projectKey);
+  const unsetVar = useUnsetVar(projectKey);
 
   const handleSave = () => {
     setVar.mutate(
@@ -281,15 +297,17 @@ function ContainersCard({ containers }: { containers: ContainersHandle | null })
 }
 
 function DeclareModal({
+  projectKey,
   projectName,
   projectRoot,
   onClose,
 }: {
+  projectKey: string;
   projectName: string;
   projectRoot: string;
   onClose: () => void;
 }) {
-  const declare = useDeclareVars(projectName, projectRoot);
+  const declare = useDeclareVars(projectKey, projectName, projectRoot);
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
   const [evidence, setEvidence] = useState('');
@@ -422,10 +440,12 @@ function parseValue(input: string): VarValue {
 }
 
 function DeleteProjectButton({
+  projectKey,
   projectName,
   projectRoot,
   onDeleted,
 }: {
+  projectKey: string;
   projectName: string;
   projectRoot: string;
   onDeleted: () => void;
@@ -438,7 +458,7 @@ function DeleteProjectButton({
       <button
         onClick={() => setConfirming(true)}
         style={{ marginLeft: 'auto', color: 'var(--red, #c33)', borderColor: 'var(--red, #c33)' }}
-        title={`删除 ~/.easy-env/projects/${projectName}/(清单 + 值)。源码树里的 easy-env.json 不变。`}
+        title={`删除 ~/.easy-env/projects/${projectKey}/(清单 + 值)。源码树里的 easy-env.json 不变。`}
       >
         删除项目…
       </button>
@@ -458,13 +478,13 @@ function DeleteProjectButton({
       <span style={{ color: 'var(--fg-dim)' }}>
         删除 <code>{projectName}</code>?
         <span style={{ display: 'block', fontSize: 11, marginTop: 2 }}>
-          会移除 <code>~/.easy-env/projects/{projectName}/</code> 下的清单和所有变量值。
+          会移除 <code>~/.easy-env/projects/{projectKey}/</code> 下的清单和所有变量值。
           位于 <code>{projectRoot}</code> 的源码树 <code>easy-env.json</code> 不会被动。
         </span>
       </span>
       <button
         onClick={() =>
-          deleteProject.mutate(projectName, {
+          deleteProject.mutate(projectKey, {
             onSuccess: () => {
               setConfirming(false);
               onDeleted();

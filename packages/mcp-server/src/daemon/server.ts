@@ -62,14 +62,23 @@ export function buildApp(ctx: ToolContext, startedAt: number): Hono {
   );
 
   // ── projects index (Web UI) ───────────────────────────────────────────────
+  // `key` is the on-disk slug (`<name>__<rootHash>`), unique per worktree.
+  // UI uses it for subsequent /api/projects/:key/... routes so two
+  // worktrees of the same project don't collide on the URL space.
   app.get('/api/projects', async (c) => {
     try {
-      const names = await ctx.manifests.list();
+      const slugs = await ctx.manifests.list();
       const projects = await Promise.all(
-        names.map(async (name) => {
-          const m = await ctx.manifests.read(name);
+        slugs.map(async (slug) => {
+          const m = await ctx.manifests.read(slug);
           return m
-            ? { name: m.name, projectRoot: m.projectRoot, backends: m.backends, variableCount: m.variables.length }
+            ? {
+                key: slug,
+                name: m.name,
+                projectRoot: m.projectRoot,
+                backends: m.backends,
+                variableCount: m.variables.length,
+              }
             : null;
         }),
       );
@@ -79,6 +88,10 @@ export function buildApp(ctx: ToolContext, startedAt: number): Hono {
     }
   });
 
+  // `:name` here is the on-disk slug emitted by GET /api/projects (the
+  // `key` field). We resolve it to the manifest's real `(name, root)`
+  // before invoking any tool so downstream code never has to detect
+  // whether it's holding a slug or a bare projectName.
   app.get('/api/projects/:name', async (c) => {
     try {
       const m = await ctx.manifests.read(c.req.param('name'));
@@ -91,7 +104,12 @@ export function buildApp(ctx: ToolContext, startedAt: number): Hono {
 
   app.delete('/api/projects/:name', async (c) => {
     try {
-      return c.json(await invokeTool('project.delete', { projectName: c.req.param('name') }));
+      const m = await ctx.manifests.read(c.req.param('name'));
+      if (!m) return c.json({ error: { code: 'not-found', message: 'project not found' } }, 404);
+      return c.json(await invokeTool('project.delete', {
+        projectName: m.name,
+        projectRoot: m.projectRoot,
+      }));
     } catch (e) {
       return handleError(c, e);
     }
@@ -182,7 +200,12 @@ export function buildApp(ctx: ToolContext, startedAt: number): Hono {
   // assumes a "current project" — every call carries its own identity.
   app.get('/api/projects/:name/vars', async (c) => {
     try {
-      return c.json(await invokeTool('vars.list', { projectName: c.req.param('name') }));
+      const m = await ctx.manifests.read(c.req.param('name'));
+      if (!m) return c.json({ error: { code: 'not-found', message: 'project not found' } }, 404);
+      return c.json(await invokeTool('vars.list', {
+        projectName: m.name,
+        projectRoot: m.projectRoot,
+      }));
     } catch (e) {
       return handleError(c, e);
     }
@@ -190,13 +213,12 @@ export function buildApp(ctx: ToolContext, startedAt: number): Hono {
 
   app.put('/api/projects/:name/vars/:varName', async (c) => {
     try {
-      const body = (await c.req.json().catch(() => ({}))) as { value?: unknown; projectRoot?: string };
-      if (!body.projectRoot) {
-        return c.json({ error: { code: 'invalid-input', message: 'projectRoot required in body' } }, 400);
-      }
+      const m = await ctx.manifests.read(c.req.param('name'));
+      if (!m) return c.json({ error: { code: 'not-found', message: 'project not found' } }, 404);
+      const body = (await c.req.json().catch(() => ({}))) as { value?: unknown };
       return c.json(await invokeTool('vars.set', {
-        projectName: c.req.param('name'),
-        projectRoot: body.projectRoot,
+        projectName: m.name,
+        projectRoot: m.projectRoot,
         name: c.req.param('varName'),
         value: body.value ?? null,
       }));
@@ -207,8 +229,11 @@ export function buildApp(ctx: ToolContext, startedAt: number): Hono {
 
   app.delete('/api/projects/:name/vars/:varName', async (c) => {
     try {
+      const m = await ctx.manifests.read(c.req.param('name'));
+      if (!m) return c.json({ error: { code: 'not-found', message: 'project not found' } }, 404);
       return c.json(await invokeTool('vars.unset', {
-        projectName: c.req.param('name'),
+        projectName: m.name,
+        projectRoot: m.projectRoot,
         name: c.req.param('varName'),
       }));
     } catch (e) {

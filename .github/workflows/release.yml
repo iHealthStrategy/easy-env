@@ -92,9 +92,21 @@ jobs:
           restore-keys: |
             cargo-${{ runner.os }}-
 
-      - name: Install npm dependencies
+      - name: Install npm dependencies (app)
         working-directory: app
         run: npm ci
+
+      - name: Install npm dependencies (root workspaces)
+        # Needed so packages/mcp-server has its transitive deps resolved
+        # via npm workspaces before the prepare script stages a
+        # production-only copy under app/src-tauri/mcp-server/.
+        run: npm ci
+
+      - name: Build mcp-server (TypeScript → dist/)
+        # tauri:release (below) invokes prepare-mcp-server.sh which
+        # expects packages/mcp-server/dist/ to exist. Build it here so
+        # CI doesn't depend on a developer remembering to commit dist.
+        run: npm run build --workspace easy-env-mcp
 
       - name: Verify version matches tag
         # Catch the "forgot to bump tauri.conf.json before tagging"

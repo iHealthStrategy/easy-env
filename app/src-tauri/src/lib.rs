@@ -205,6 +205,15 @@ pub fn run() {
         // than via `.menu()` on the builder so we can use the AppHandle
         // for predefined items that need it (about, services, etc.).
         .setup(|app| {
+            // Tell paths.rs where the bundled mcp-server lives. In a
+            // production .app this is Contents/Resources/. In `tauri dev`
+            // resource_dir() points at app/src-tauri/, which also happens
+            // to be where prepare-mcp-server.sh stages the tree — so dev
+            // builds get the bundled path too when they prep first;
+            // otherwise paths.rs falls back to the monorepo walk.
+            if let Ok(dir) = app.path().resource_dir() {
+                paths::set_resource_dir(dir);
+            }
             let handle = app.handle();
             let app_menu = SubmenuBuilder::new(handle, "easy-env")
                 .about(Some(AboutMetadata {

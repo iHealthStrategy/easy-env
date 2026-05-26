@@ -114,7 +114,7 @@ export function Settings() {
           label="运行 easy-env 守护进程"
           description={
             daemon?.healthy
-              ? `正在监听 ${daemon.url}${daemon.version ? `(v${daemon.version})` : ''}。`
+              ? `正在监听 ${daemon.url}。`
               : '以子进程方式启动 Node.js 守护进程。env / snapshot / diff 等接口都依赖它。'
           }
           on={!!daemon?.healthy}

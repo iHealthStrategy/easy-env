@@ -10,8 +10,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
-    "tauri:release": "tauri build && ./scripts/repackage-dmg.sh"
+    "tauri:build": "./scripts/prepare-mcp-server.sh && tauri build",
+    "tauri:release": "./scripts/prepare-mcp-server.sh && tauri build && ./scripts/repackage-dmg.sh"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",

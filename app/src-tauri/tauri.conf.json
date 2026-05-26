@@ -29,6 +29,16 @@
       "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:7193 ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
     }
   },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "dialog": false,
+      "pubkey": "REPLACE_WITH_BASE64_PUBKEY_FROM_TAURI_SIGNER_GENERATE",
+      "endpoints": [
+        "https://raw.githubusercontent.com/iHealthStrategy/easy-env/master/releases/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
@@ -42,6 +52,9 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "easy-env desktop manager",
-    "longDescription": "Native management UI for easy-env: control the embedded daemon, install the Claude Code skill, and inspect envs/snapshots/diffs."
+    "longDescription": "Native management UI for easy-env: control the embedded daemon, install the Claude Code skill, and inspect envs/snapshots/diffs.",
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
   }
 }

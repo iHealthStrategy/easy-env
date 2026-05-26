@@ -1,0 +1,206 @@
+name: release
+
+# Tag-driven release pipeline.
+#
+# Trigger: push a SemVer tag like `v0.1.1`. Locally:
+#     # bump app/src-tauri/tauri.conf.json + app/package.json version
+#     git commit -am "release: v0.1.1"
+#     git tag v0.1.1
+#     git push origin master v0.1.1
+#
+# What happens here:
+#   1. Build the Tauri app on macOS (arm64 by default) with the
+#      minisign signing key (repo secret) — this is what makes the
+#      .app.tar.gz.sig file the updater needs.
+#   2. Repackage the dmg with the xattr README (scripts/repackage-dmg.sh).
+#   3. Create a GitHub Release for the tag, upload .tar.gz, .sig and
+#      the human-friendly *-with-launcher.dmg.
+#   4. Build releases/latest.json with API URLs (rewritten by
+#      scripts/make-latest-json.sh so per-user gh tokens authenticate
+#      every download), commit it to master.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   TAURI_SIGNING_PRIVATE_KEY           full contents of ~/.tauri/easy-env-updater.key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  the password you set when generating it
+#
+# No GitHub PAT needed — GITHUB_TOKEN provided by Actions has enough
+# scope to create releases AND push commits to master (with the
+# permissions block below).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to (re)release, e.g. v0.1.1 — must already exist on a commit'
+        required: true
+
+# `contents: write` so the post-release step can push releases/latest.json
+# back to master. The default GITHUB_TOKEN gets this scope.
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    # macos-14 = Apple Silicon runner; the produced binary is arm64.
+    # Add a second matrix entry on macos-13 (Intel) if you need x86_64
+    # too — bump make-latest-json.sh's PLATFORMS list at the same time.
+    runs-on: macos-14
+
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          # Both push-tag and manual-dispatch flows funnel into the
+          # same downstream steps via $TAG.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout (at the release tag)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.value }}
+          # Need full history so we can push releases/latest.json
+          # back to master from this same workspace.
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Cache node_modules across runs; app/package-lock.json is the
+          # cache key.
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            app/src-tauri/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('app/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Install npm dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Verify version matches tag
+        # Catch the "forgot to bump tauri.conf.json before tagging"
+        # mistake before we waste a build slot on a bad release.
+        working-directory: app
+        run: |
+          TAG="${{ steps.tag.outputs.value }}"
+          PKG_VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [[ "v$PKG_VER" != "$TAG" ]]; then
+            echo "::error::tag $TAG does not match tauri.conf.json version v$PKG_VER" >&2
+            exit 1
+          fi
+
+      - name: Build (sign + bundle)
+        working-directory: app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY secret is not set on this repo" >&2
+            exit 1
+          fi
+          npm run tauri:release
+
+      - name: Stage release artifacts
+        id: artifacts
+        working-directory: app
+        run: |
+          VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          # Find the actual filenames Tauri emitted. Architecture suffix
+          # varies (aarch64 on macos-14, x86_64 on macos-13), so we
+          # discover instead of hard-coding.
+          DMG=$(ls src-tauri/target/release/bundle/dmg/*-with-launcher.dmg | head -n1)
+          TARBALL=$(ls src-tauri/target/release/bundle/macos/*.app.tar.gz | head -n1)
+          SIGFILE="${TARBALL}.sig"
+          if [[ ! -f "$DMG" || ! -f "$TARBALL" || ! -f "$SIGFILE" ]]; then
+            echo "::error::missing one of: $DMG / $TARBALL / $SIGFILE" >&2
+            ls -la src-tauri/target/release/bundle/dmg/ src-tauri/target/release/bundle/macos/ || true
+            exit 1
+          fi
+          echo "version=$VER"           >> "$GITHUB_OUTPUT"
+          echo "dmg=$PWD/$DMG"          >> "$GITHUB_OUTPUT"
+          echo "tarball=$PWD/$TARBALL"  >> "$GITHUB_OUTPUT"
+          echo "sigfile=$PWD/$SIGFILE"  >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.value }}"
+          # If the release already exists (re-run / manual dispatch),
+          # upload-by-edit instead of failing. --clobber overwrites
+          # same-named assets.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              "${{ steps.artifacts.outputs.dmg }}" \
+              "${{ steps.artifacts.outputs.tarball }}" \
+              "${{ steps.artifacts.outputs.sigfile }}" \
+              --clobber
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes \
+              "${{ steps.artifacts.outputs.dmg }}" \
+              "${{ steps.artifacts.outputs.tarball }}" \
+              "${{ steps.artifacts.outputs.sigfile }}"
+          fi
+
+      - name: Generate releases/latest.json
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p ../releases
+          ./scripts/make-latest-json.sh "${{ steps.tag.outputs.value }}" > ../releases/latest.json
+          echo "── generated latest.json ──"
+          cat ../releases/latest.json
+
+      - name: Commit latest.json to master
+        # The build job checked out the tag, which is detached HEAD.
+        # We need to land latest.json on master, so cherry-pick a
+        # one-shot worktree of master, copy the file in, commit, push.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          # Copy the freshly generated manifest out of the workspace,
+          # because we're about to switch branches.
+          TMP=$(mktemp -d)
+          cp releases/latest.json "$TMP/latest.json"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin master
+          git checkout -B master origin/master
+
+          mkdir -p releases
+          cp "$TMP/latest.json" releases/latest.json
+
+          if git diff --quiet -- releases/latest.json; then
+            echo "no changes to releases/latest.json; skipping commit"
+            exit 0
+          fi
+
+          git add releases/latest.json
+          git commit -m "release: update releases/latest.json for ${{ steps.tag.outputs.value }}"
+          git push origin master

@@ -52,6 +52,15 @@ export type DockerStatus = {
   error: string | null;
 };
 
+/** Per-user GitHub token resolution result. Mirrors github::TokenResult in
+ *  src-tauri/src/github.rs. token is null when no source yielded one;
+ *  hint then carries a UI-displayable explanation. */
+export type GithubTokenResult = {
+  token: string | null;
+  source: 'gh-cli' | 'env-var' | 'none';
+  hint: string | null;
+};
+
 export type PathsInfo = {
   repo_root: string;
   mcp_server_dir: string;
@@ -99,6 +108,14 @@ export const tauri = {
   docker: {
     status: (): Promise<DockerStatus> =>
       IS_TAURI ? invoke('docker_status') : ensureTauri(),
+  },
+  github: {
+    /** Per-user GitHub token resolved at runtime; never embedded in the
+     *  app bundle. UpdateBanner uses it to authenticate private-repo
+     *  release downloads. Returns token=null + a hint when no source
+     *  yielded one (no gh, no env var). */
+    token: (): Promise<GithubTokenResult> =>
+      IS_TAURI ? invoke('github_token') : ensureTauri(),
   },
   mcp: {
     status: (): Promise<McpStatus> =>

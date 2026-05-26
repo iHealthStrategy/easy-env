@@ -29,6 +29,8 @@ dirs = "5"
 which = "6"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 once_cell = "1"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [features]
 # By default Tauri does not enable any features.

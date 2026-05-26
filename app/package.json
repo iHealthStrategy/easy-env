@@ -10,14 +10,17 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:release": "tauri build && ./scripts/repackage-dmg.sh"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",
     "@tauri-apps/api": "^2.1.1",
     "@tauri-apps/plugin-dialog": "^2.0.1",
+    "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.0.1",
     "@tauri-apps/plugin-store": "^2.1.0",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.27.0"

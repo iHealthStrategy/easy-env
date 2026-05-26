@@ -22,6 +22,7 @@ import { Variables } from './pages/Variables';
 import { Settings } from './pages/Settings';
 import { DaemonStatusBar } from './components/DaemonStatusBar';
 import { DockerBanner } from './components/DockerBanner';
+import { UpdateBanner } from './components/UpdateBanner';
 
 export default function App() {
   return (
@@ -42,6 +43,7 @@ export default function App() {
       </aside>
       <main className="main">
         <div className="drag-strip" onMouseDown={startDrag} />
+        <UpdateBanner />
         <DockerBanner />
         <Routes>
           <Route path="/" element={<EnvsList />} />

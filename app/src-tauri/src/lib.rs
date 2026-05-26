@@ -4,6 +4,7 @@
 
 mod daemon;
 mod docker;
+mod github;
 mod paths;
 mod skill;
 mod mcp_config;
@@ -91,6 +92,15 @@ fn paths_info() -> Result<paths::PathsInfo, String> {
 }
 
 #[tauri::command]
+async fn github_token() -> Result<github::TokenResult, String> {
+    // Run on a worker thread because resolve() may shell out to `gh`,
+    // which can take tens of ms — keep the IPC reply channel free.
+    tokio::task::spawn_blocking(github::resolve)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn docker_status() -> Result<docker::DockerStatus, String> {
     // Run the blocking probe on a worker thread so the IPC reply channel
     // stays responsive — docker info can take a second or two on cold
@@ -150,6 +160,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
+        // Self-update over HTTP. Frontend calls check()/downloadAndInstall()
+        // via @tauri-apps/plugin-updater; the bundled minisign pubkey
+        // (configured in tauri.conf.json plugins.updater.pubkey) verifies
+        // every downloaded artifact before it touches disk.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Required so the frontend can call relaunch() after an install
+        // — without it `process:allow-restart` capability has no
+        // backing command.
+        .plugin(tauri_plugin_process::init())
         .manage(AppState {
             daemon: Mutex::new(daemon::DaemonHandle::new()),
         })
@@ -180,6 +199,7 @@ pub fn run() {
             mcp_unregister,
             paths_info,
             docker_status,
+            github_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

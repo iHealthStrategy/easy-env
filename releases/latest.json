@@ -1,11 +1,11 @@
 {
-  "version": "0.1.5",
+  "version": "0.1.6",
   "notes": "",
-  "pub_date": "2026-05-26T15:14:11Z",
+  "pub_date": "2026-05-27T01:51:55Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTOXgzeFg3SFN6aUNEQTN5WmJrUXVWa01HTlNNK2JtdEdDSzJoems2ZWlqengxNVpYQUlqVURqUVZoOS9yQVJMZnpoQS9pUGd6SlB1NlR0aldneWFpcUx5d21XL2FGNWdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5ODA4NDQxCWZpbGU6ZWFzeS1lbnYuYXBwLnRhci5negpVcjgxeW5QbXlDdGV3R210Nm9ROHpyM0s1Z3pMaVlId0FMay9ieVZpV1FYOWJiRnVlVTVsVEtldFhZdHBTQ1ExTy9YMHNWbWF3b1ZNK3dOS1pGMUxDQT09Cg==",
-      "url": "https://github.com/iHealthStrategy/easy-env/releases/download/v0.1.5/easy-env.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTOXgzeFg3SFN6aUtGYlJUVlJIenRBL3IzV25jRlBYam9oZDFRTTRVUkJEVmRlVE41dytOcWs4VGtHWklENm4rbVorNXdhUXBQL3B1R2dtaWliNGtPbHkwNkdHTmVKRkE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5ODQ2NzA1CWZpbGU6ZWFzeS1lbnYuYXBwLnRhci5negpINkY4cHZ1OXFFVTZYZm4xdVF3UUJqSjA2d1BoTUUvcUlnZnNJRUdQbitXdUtiSmdFOU9YdGNLZ21CQnJmVE1KVklmOFMxc3hlUExSNnp1SlVTRElEUT09Cg==",
+      "url": "https://github.com/iHealthStrategy/easy-env/releases/download/v0.1.6/easy-env.app.tar.gz"
     }
   }
 }

@@ -3,6 +3,7 @@
 // after they flip the Settings toggle without having to refresh.
 import { useEffect, useState } from 'react';
 import { tauri, type DaemonStatus } from '../api/tauri';
+import { fmtUptime } from './format';
 
 export function DaemonStatusBar() {
   const [status, setStatus] = useState<DaemonStatus | null>(null);
@@ -74,6 +75,11 @@ export function DaemonStatusBar() {
           {status.pid && (
             <div className="daemon-bar-meta-line">
               pid <code>{status.pid}</code>
+            </div>
+          )}
+          {healthy && status.uptime_ms != null && (
+            <div className="daemon-bar-meta-line">
+              已运行 {fmtUptime(status.uptime_ms)}
             </div>
           )}
         </div>

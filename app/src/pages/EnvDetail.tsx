@@ -9,12 +9,13 @@ export function EnvDetail() {
   const query = useEnv(envId);
 
   return (
-    <>
+    <div className="page">
       <div className="page-header">
         <h2>
           <Link to="/">环境</Link> / <code>{envId}</code>
         </h2>
       </div>
+      <div className="page-body">
 
       <QueryState query={query}>
         {(env) => (
@@ -109,7 +110,8 @@ export function EnvDetail() {
           </>
         )}
       </QueryState>
-    </>
+      </div>
+    </div>
   );
 }
 

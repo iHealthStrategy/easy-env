@@ -1,25 +1,18 @@
 import { useNavigate } from 'react-router-dom';
-import { useEnvs, useHealth } from '../api/hooks';
+import { useEnvs } from '../api/hooks';
 import { QueryState } from '../components/QueryState';
 import { envStatusLabel, fmtRelative, fmtTime, shortId } from '../components/format';
 
 export function EnvsList() {
   const envs = useEnvs();
-  const health = useHealth();
   const navigate = useNavigate();
 
   return (
-    <>
+    <div className="page">
       <div className="page-header">
         <h2>环境</h2>
-        <span className="meta">
-          {health.data ? (
-            <>守护进程已运行 {Math.floor(health.data.uptimeMs / 1000)}s</>
-          ) : (
-            <>守护进程离线</>
-          )}
-        </span>
       </div>
+      <div className="page-body">
 
       <QueryState
         query={envs}
@@ -69,6 +62,7 @@ export function EnvsList() {
           </div>
         )}
       </QueryState>
-    </>
+      </div>
+    </div>
   );
 }

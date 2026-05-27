@@ -38,7 +38,7 @@ export function Variables() {
   const project = projectsQuery.data?.projects.find((p) => p.key === selected) ?? null;
 
   return (
-    <>
+    <div className="page">
       <div className="page-header">
         <h2>变量</h2>
         <span className="meta">
@@ -50,6 +50,7 @@ export function Variables() {
           }
         </span>
       </div>
+      <div className="page-body">
 
       <QueryState query={projectsQuery}>
         {(data) => {
@@ -101,7 +102,8 @@ export function Variables() {
           );
         }}
       </QueryState>
-    </>
+      </div>
+    </div>
   );
 }
 

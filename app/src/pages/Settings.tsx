@@ -99,11 +99,12 @@ export function Settings() {
   };
 
   return (
-    <div>
+    <div className="page">
       <div className="page-header">
         <h2>设置</h2>
         <span className="meta">所有操作仅写入本地文件系统。</span>
       </div>
+      <div className="page-body">
 
       {error && <div className="error-banner">{error}</div>}
       {state === 'loading' && <div className="loading">加载中…</div>}
@@ -227,6 +228,7 @@ export function Settings() {
           <dt>Node 可执行文件</dt>
           <dd><code>{paths?.node_binary ?? '未找到'}</code></dd>
         </dl>
+      </div>
       </div>
     </div>
   );

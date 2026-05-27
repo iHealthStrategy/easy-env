@@ -1,6 +1,6 @@
 [package]
 name = "easy-env-app"
-version = "0.1.5"
+version = "0.1.6"
 description = "easy-env Tauri desktop app"
 authors = ["easy-env"]
 edition = "2021"

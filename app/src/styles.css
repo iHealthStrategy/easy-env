@@ -136,11 +136,14 @@ code, pre { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 1
 }
 
 .main {
-  padding: 24px 32px;
-  overflow: auto;
-  /* Belt-and-suspenders: the `*` rule already sets this, but keep it
-     explicit here as the primary scroll container. */
-  overscroll-behavior: none;
+  /* Non-scrolling flex column: the page header stays put at the top while
+     only .page-body scrolls. This keeps the title fixed without sticky
+     stacking, which is fragile in WKWebView (native <select> controls and
+     cards would paint over a sticky header). */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
   position: relative;
 }
 
@@ -151,11 +154,13 @@ code, pre { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 1
   align-items: flex-start;
   gap: 12px;
   padding: 12px 16px;
-  margin-bottom: 16px;
+  /* .main no longer pads its children, so inset the banner here. */
+  margin: 16px 32px 0;
   border-radius: 8px;
   border: 1px solid;
   font-size: 13px;
   line-height: 1.5;
+  flex: 0 0 auto;
 }
 .docker-banner.danger {
   background: rgba(239, 68, 68, 0.08);
@@ -220,14 +225,57 @@ code, pre { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 1
   user-select: none;
 }
 
+/* Page = fixed header + scrolling body, filling the whole .main column. */
+.page {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.page-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  overscroll-behavior: none;
+  padding: 20px 32px;
+}
+
 .page-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 20px;
+  flex: 0 0 auto;
+  /* relative + z-index so the header's links stay clickable above the
+     fixed .drag-strip that overlaps its top edge. */
+  position: relative;
+  z-index: 101;
+  background: var(--bg);
+  padding: 20px 32px 14px;
+  border-bottom: 1px solid var(--border);
 }
 .page-header h2 { margin: 0; font-size: 22px; font-weight: 600; }
 .page-header .meta { color: var(--fg-dim); font-size: 12px; }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-dim);
+  padding: 8px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.tab:hover { color: var(--fg); }
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
 
 .card {
   background: var(--bg-2);

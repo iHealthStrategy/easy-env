@@ -3,10 +3,6 @@ import type { MouseEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { EnvsList } from './pages/EnvsList';
 import { EnvDetail } from './pages/EnvDetail';
-import { SnapshotsList } from './pages/SnapshotsList';
-import { SnapshotDetail } from './pages/SnapshotDetail';
-import { DiffsList } from './pages/DiffsList';
-import { DiffDetail } from './pages/DiffDetail';
 import { McpService } from './pages/McpService';
 import { Variables } from './pages/Variables';
 import { Settings } from './pages/Settings';
@@ -21,6 +17,18 @@ import { IS_TAURI, useUpdater } from './hooks/useUpdater';
 function startDrag(e: MouseEvent) {
   if (e.buttons !== 1) return;
   if (!IS_TAURI) return;
+  getCurrentWindow().startDragging().catch(() => {});
+}
+
+// Delegated drag for the sticky page header: grabbing anywhere on the bar
+// moves the window, but never when the user is grabbing an interactive
+// element or a selectable id (links, buttons, inputs, <code> ids).
+function startHeaderDrag(e: MouseEvent) {
+  if (e.buttons !== 1) return;
+  if (!IS_TAURI) return;
+  const target = e.target as HTMLElement;
+  if (!target.closest('.page-header')) return;
+  if (target.closest('a, button, input, select, textarea, code')) return;
   getCurrentWindow().startDragging().catch(() => {});
 }
 
@@ -52,23 +60,17 @@ function MainShell() {
         <nav>
           <NavLink to="/" end>环境</NavLink>
           <NavLink to="/vars">变量</NavLink>
-          <NavLink to="/snapshots">快照</NavLink>
-          <NavLink to="/diffs">差异</NavLink>
           <NavLink to="/mcp">MCP 服务</NavLink>
           <NavLink to="/settings">设置</NavLink>
         </nav>
         <DaemonStatusBar />
       </aside>
-      <main className="main">
+      <main className="main" onMouseDown={startHeaderDrag}>
         <div className="drag-strip" onMouseDown={startDrag} />
         <DockerBanner />
         <Routes>
           <Route path="/" element={<EnvsList />} />
           <Route path="/envs/:envId" element={<EnvDetail />} />
-          <Route path="/snapshots" element={<SnapshotsList />} />
-          <Route path="/snapshots/:id" element={<SnapshotDetail />} />
-          <Route path="/diffs" element={<DiffsList />} />
-          <Route path="/diffs/:id" element={<DiffDetail />} />
           <Route path="/mcp" element={<McpService />} />
           <Route path="/vars" element={<Variables />} />
           <Route path="/settings" element={<Settings />} />

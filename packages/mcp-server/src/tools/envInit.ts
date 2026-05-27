@@ -56,6 +56,11 @@ export const EnvInitInput = z.object({
   mongo: MongoBackendPatch.optional(),
   redis: RedisBackendPatch.optional(),
   rabbit: RabbitBackendPatch.optional(),
+  /** Explicitly stop running a backend: removes it from the manifest so
+   *  env.up no longer spawns it. Use this to turn a service OFF — omitting
+   *  a backend key only leaves its current declaration untouched, it does
+   *  NOT disable it. `disable` wins if the same backend is also patched. */
+  disable: z.array(z.enum(['mongo', 'redis', 'rabbit'])).optional(),
   /** Seed file paths to register. When omitted the manifest's existing
    *  seed config is preserved; when provided, it REPLACES the existing
    *  config (so the manifest stays in sync with easy-env.json). Pass
@@ -66,23 +71,34 @@ export const EnvInitInput = z.object({
 export async function runEnvInit(input: z.infer<typeof EnvInitInput>, ctx: ToolContext) {
   const manifest = await ctx.manifests.loadOrInit(input.projectName, input.projectRoot);
 
-  // Merge per-backend so callers can update just one of mongo/redis/rabbit.
+  // A backend's PRESENCE in the manifest is what makes env.up spawn it
+  // (mongo/redis/rabbit are all opt-in, symmetrically). So we only touch
+  // backends the caller actually mentioned:
+  //   - patch passed (even {})  → declare/enable + merge config
+  //   - listed in `disable`     → remove (stop spawning it)
+  //   - omitted                 → leave the existing declaration untouched
+  const disable = new Set(input.disable ?? []);
+  const patches = { mongo: input.mongo, redis: input.redis, rabbit: input.rabbit };
+  const backends: Record<string, Record<string, unknown>> = { ...manifest.backends };
+  for (const b of ['mongo', 'redis', 'rabbit'] as const) {
+    if (disable.has(b)) {
+      delete backends[b];
+      continue;
+    }
+    const patch = patches[b];
+    if (patch !== undefined) {
+      backends[b] = { ...(manifest.backends[b] ?? {}), ...patch };
+    }
+  }
+
   const next = {
     ...manifest,
-    backends: {
-      mongo: { ...(manifest.backends.mongo ?? {}), ...(input.mongo ?? {}) },
-      redis: { ...(manifest.backends.redis ?? {}), ...(input.redis ?? {}) },
-      rabbit: { ...(manifest.backends.rabbit ?? {}), ...(input.rabbit ?? {}) },
-    },
+    backends,
     // Seed REPLACES (not merges) on each call — the AI's easy-env.json is
     // the source of truth; partial-update semantics would silently retain
     // stale paths the user already deleted from the project's config.
     seed: input.seed ?? manifest.seed,
   };
-  // Drop empty backend entries to keep the manifest tidy.
-  if (Object.keys(next.backends.mongo).length === 0) delete (next.backends as { mongo?: unknown }).mongo;
-  if (Object.keys(next.backends.redis).length === 0) delete (next.backends as { redis?: unknown }).redis;
-  if (Object.keys(next.backends.rabbit).length === 0) delete (next.backends as { rabbit?: unknown }).rabbit;
 
   await ctx.manifests.write(next);
 
@@ -98,6 +114,6 @@ export async function runEnvInit(input: z.infer<typeof EnvInitInput>, ctx: ToolC
 export const envInitToolDescription = {
   name: 'env.init',
   description:
-    "Register or update this project's backend container configuration in the daemon manifest. Pass { projectName, projectRoot, mongo?: { image?, port?, dbName?, replicaSet? }, redis?: { image?, port? }, rabbit?: { image?, port?, managementPort?, user?, password? }, seed?: { json?: string[], scripts?: string[] } }. The AI is the source of truth — it reads the project's easy-env.json and source, then submits the resolved values here. The daemon never opens any file inside projectRoot, except for the explicit seed paths declared here (which state.seed later reads). seed paths are relative to projectRoot; submitting seed REPLACES the existing config (don't omit to silently retain stale paths). Rabbit is opt-in (only spawns when declared). Setting mongo.replicaSet (e.g. \"rs0\") boots mongod with --replSet + rs.initiate (required for change streams / transactions); resolved mongoUrl gains ?replicaSet=…&directConnection=true.",
+    "Register or update this project's backend container configuration in the daemon manifest. Pass { projectName, projectRoot, mongo?: { image?, port?, dbName?, replicaSet? }, redis?: { image?, port? }, rabbit?: { image?, port?, managementPort?, user?, password? }, disable?: ('mongo'|'redis'|'rabbit')[], seed?: { json?: string[], scripts?: string[] } }. The AI is the source of truth — it reads the project's easy-env.json and source, then submits the resolved values here. The daemon never opens any file inside projectRoot, except for the explicit seed paths declared here (which state.seed later reads). DECLARE ONLY THE SERVICES THE PROJECT USES: each backend is opt-in — env.up spawns mongo/redis/rabbit only when they're declared here. Pass an empty object (e.g. mongo: {}) to enable a service with default image/port; omit a backend to leave its current declaration untouched; pass it in `disable` to stop running it. seed paths are relative to projectRoot; submitting seed REPLACES the existing config (don't omit to silently retain stale paths). Setting mongo.replicaSet (e.g. \"rs0\") boots mongod with --replSet + rs.initiate (required for change streams / transactions); resolved mongoUrl gains ?replicaSet=…&directConnection=true.",
   inputSchema: EnvInitInput,
 };

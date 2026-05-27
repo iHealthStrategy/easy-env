@@ -2,8 +2,9 @@
 name: easy-env-bootstrap
 description: Use the easy-env MCP server to provision a project's runtime
   environment. YOU (the AI) read the project, decide which env vars it
-  needs, and submit them via vars.declare; easy-env owns Mongo/Redis
-  containers; together they let the project run reproducibly. Trigger when
+  needs, and submit them via vars.declare; easy-env owns the data-service
+  containers (mongo/redis/rabbit) the project DECLARES — each is opt-in, so
+  a project only runs the ones it actually uses. Trigger when
   the user says "用 easy-env 跑起这个项目", "用 easy-env 配好这个项目的环境",
   "set up this project with easy-env", "initialize easy-env for this
   project", "let easy-env manage this app's vars".
@@ -19,9 +20,16 @@ sessions) can run it reproducibly.
 **AI side (you, here in the user's shell)**:
 - Read the project — `easy-env.json`, source code, docker-compose, .env,
   Dockerfile, k8s manifests, README — whatever applies.
-- Decide what backends (mongo/redis images, host ports) the project
-  needs, and what environment variables it consumes.
+- Decide **which** data services the project actually uses (mongo? redis?
+  rabbit? maybe none), their images and host ports, and what environment
+  variables it consumes.
 - Push the resolved data to the easy-env daemon via MCP tools.
+
+**Each backend is opt-in.** env.up spawns mongo / redis / rabbit only when
+you declared it via env.init. Declare just what the project uses: a
+redis-only project gets only redis; a pure compute service that talks to no
+local data store gets a bare env with no containers. Don't declare a service
+"just in case" — it would spin up a container the project never connects to.
 
 **Daemon side (easy-env)**:
 - Pure persistence + container lifecycle. **The daemon NEVER reads
@@ -65,10 +73,10 @@ You can always pass them explicitly to override the auto-injected values.
 
 ```
 1. Read / fix easy-env.json     (YOU, with Read/Write tools)
-2. env.init                     (push backends config to daemon manifest)
+2. env.init                     (declare which services + push backends config)
 3. AI READ project              (find every env var the project consumes)
 4. vars.declare                 (bulk submit variable names + values)
-5. env.up                       (spawn mongo/redis containers)
+5. env.up                       (spawn ONLY the declared containers)
 6. vars.list                    (verify no required var is `unset`)
 7. start the project            (spawn it with vars.list values in env)
 ```
@@ -105,6 +113,28 @@ This writes the backends config into the daemon's manifest at
 `~/.easy-env/projects/<projectName>/manifest.json`. Subsequent `env.up`
 calls read from this file — `MONGO_URL` / `REDIS_URL` stay stable across
 env.up cycles.
+
+**Declare only what the project uses.** The backends you pass here are the
+exact set env.up will start. Pass an empty object (`mongo: {}`) to enable a
+service with default image/port. Examples:
+
+```
+// redis-only project
+env.init { redis: {} }
+
+// mongo + rabbit, no redis
+env.init { mongo: { dbName: "app" }, rabbit: {} }
+
+// pure compute service, no local data stores
+env.init { }            // declares nothing → env.up starts no containers
+```
+
+To stop running a service you previously declared, pass it in `disable`:
+```
+env.init { disable: ["redis"] }
+```
+Omitting a backend key leaves its existing declaration untouched — only
+`disable` turns one off.
 
 **Image choices**: pick `mongo:4.2` unless the project pins a different
 version (look at `docker-compose*.yml`, README). `redis:7-alpine` is a
@@ -183,9 +213,13 @@ variable names with `vars.set`.
 env.up {}     // projectName/projectRoot auto-injected
 ```
 
-Expect `status: "ready"` and resolved URLs. If it errors "port already
-in use", show the message to the user verbatim — they need to free the
-port or change `backends.<x>.port` in `easy-env.json` and re-run `env.init`.
+Expect `status: "ready"` and resolved URLs. The response's `services` field
+reports, per backend, whether it was `spawned` or skipped (e.g. `skipped:
+not declared in manifest`) — use it to confirm exactly the services you
+declared came up, and nothing extra. If a service you expected is "not
+declared", go back to step 2 and declare it. If it errors "port already in
+use", show the message to the user verbatim — they need to free the port or
+change `backends.<x>.port` in `easy-env.json` and re-run `env.init`.
 
 ### 6. Verify required values — `vars.list`
 

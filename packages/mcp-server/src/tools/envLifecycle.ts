@@ -55,6 +55,25 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
     projectName: input.projectName,
   });
 
+  // Per-service summary so the AI/user can see what ran and why — especially
+  // the "skipped because not declared" case, which is the new default for a
+  // project that doesn't use a given data service.
+  const serviceStatus = (
+    declared: boolean,
+    without: boolean,
+    spawned: boolean,
+  ): string => {
+    if (spawned) return 'spawned';
+    if (!declared) return 'skipped: not declared in manifest';
+    if (without) return 'skipped: caller passed without flag';
+    return 'skipped';
+  };
+  const services = {
+    mongo: serviceStatus(spec.mongo !== undefined, input.withoutMongo, !!env.mongo),
+    redis: serviceStatus(spec.redis !== undefined, input.withoutRedis, !!env.redis),
+    rabbit: serviceStatus(spec.rabbit !== undefined, input.withoutRabbit, !!env.rabbit),
+  };
+
   // Auto-seed — runs only when (a) caller didn't opt out and (b) manifest
   // declares at least one seed path. The whole point: "the AI already told
   // us about these files via env.init; don't make it call state.seed again."
@@ -81,6 +100,7 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
     projectName: input.projectName,
     status: env.status,
     resolved: env.resolved,
+    services,
     containers: {
       mongo: env.mongo
         ? { containerId: env.mongo.containerId, image: env.mongo.image, hostPort: env.mongo.hostPort }
@@ -102,7 +122,7 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
 export const envUpToolDescription = {
   name: 'env.up',
   description:
-    "Provision a fresh isolated environment for a project using Testcontainers. Pass { projectName, projectRoot, seed?: 'auto'|'skip' }; the daemon looks up the manifest written by env.init to learn which images and host ports to use. When the manifest declares seed paths (seed.json / seed.scripts) and seed='auto' (default), env.up applies them automatically after the containers are ready — no separate state.seed call needed. Pass seed='skip' to opt out (e.g. when you want to inspect the empty env first, or re-seed manually with state.seed). Returns envId + resolved URLs + a `seed` field showing what was applied (or why it was skipped). Sets this env as 'active' so subsequent tool calls default to it.",
+    "Provision a fresh isolated environment for a project using Testcontainers. Pass { projectName, projectRoot, seed?: 'auto'|'skip' }; the daemon looks up the manifest written by env.init to learn which services to run and which images / host ports to use. ONLY THE DECLARED SERVICES ARE STARTED: mongo, redis and rabbit are each spawned only when env.init declared them, so a project that uses just one — or none — of these data services gets exactly that. The response includes a `services` field reporting, per backend, whether it was spawned or skipped (e.g. 'not declared in manifest'). Use withoutMongo/withoutRedis/withoutRabbit for a one-off skip of a declared service. When the manifest declares seed paths (seed.json / seed.scripts) and seed='auto' (default), env.up applies them automatically after the containers are ready. Pass seed='skip' to opt out. Returns envId + resolved URLs + `services` + a `seed` field. Sets this env as 'active' so subsequent tool calls default to it.",
   inputSchema: EnvUpInput,
 };
 

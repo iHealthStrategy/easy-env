@@ -96,6 +96,49 @@ async function main() {
       assert(update.backends.mongo?.replicaSet === 'rs0', 'replicaSet survives partial update');
       console.log('  ✓ partial env.init preserves dbName');
     });
+
+    // --- backend selection semantics (opt-in per service) ----------------
+    // env.up spawns a backend iff the manifest declares it, so env.init must
+    // record presence precisely: empty {} enables, omit preserves, disable
+    // removes.
+    await withTempProject(async (projectRoot) => {
+      const ctx = buildContext(FsStore.default());
+
+      // Declaring only redis (empty {} = "enable with defaults") leaves
+      // mongo and rabbit absent → env.up won't start them.
+      const redisOnly = await runEnvInit(
+        { projectName: 'sel-fixture', projectRoot, redis: {} },
+        ctx,
+      );
+      assert(redisOnly.backends.redis !== undefined, 'redis declared via empty {}');
+      assert(redisOnly.backends.mongo === undefined, 'mongo NOT declared when omitted');
+      assert(redisOnly.backends.rabbit === undefined, 'rabbit NOT declared when omitted');
+      console.log('  ✓ empty {} enables a service; omitted services stay undeclared');
+
+      // Omitting redis on a later call preserves it; adding mongo declares it.
+      const addMongo = await runEnvInit(
+        { projectName: 'sel-fixture', projectRoot, mongo: { dbName: 'x' } },
+        ctx,
+      );
+      assert(addMongo.backends.redis !== undefined, 'omitted redis preserved');
+      assert(addMongo.backends.mongo?.dbName === 'x', 'mongo now declared');
+      console.log('  ✓ omitting a backend preserves it; new backend gets declared');
+
+      // disable removes a declared service.
+      const disabled = await runEnvInit(
+        { projectName: 'sel-fixture', projectRoot, disable: ['redis'] },
+        ctx,
+      );
+      assert(disabled.backends.redis === undefined, 'redis removed via disable');
+      assert(disabled.backends.mongo !== undefined, 'mongo untouched by disabling redis');
+      console.log('  ✓ disable removes a service, leaves others intact');
+
+      // Declaring nothing yields a bare manifest → env.up starts no containers.
+      const bare = await runEnvInit({ projectName: 'bare-fixture', projectRoot }, ctx);
+      assert(bare.backends.mongo === undefined && bare.backends.redis === undefined && bare.backends.rabbit === undefined,
+        'no backends declared → none present');
+      console.log('  ✓ declaring nothing leaves all backends undeclared');
+    });
   });
   console.log('manifest-roundtrip: ALL PASS');
 }

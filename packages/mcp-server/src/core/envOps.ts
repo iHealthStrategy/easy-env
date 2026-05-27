@@ -49,12 +49,11 @@ function commonLabels(envId: string, projectName?: string): Record<string, strin
 }
 
 export interface UpOptions {
-  /** Skip starting Mongo (when project doesn't use it). */
+  /** One-off override: skip Mongo even if the manifest declares it. */
   withoutMongo?: boolean;
-  /** Skip starting Redis (when project doesn't use it). */
+  /** One-off override: skip Redis even if the manifest declares it. */
   withoutRedis?: boolean;
-  /** Skip starting Rabbit (when project doesn't use it). Default true when
-   *  the manifest has no rabbit backend — envUp consults this. */
+  /** One-off override: skip Rabbit even if the manifest declares it. */
   withoutRabbit?: boolean;
   /** If true, set this new env as the active one. Default true. */
   setActive?: boolean;
@@ -86,22 +85,23 @@ export async function envUp(
     const redisImage = spec.redis?.image ?? DEFAULT_REDIS_IMAGE;
     const rabbitImage = spec.rabbit?.image ?? DEFAULT_RABBIT_IMAGE;
 
-    const mongo = opts.withoutMongo
-      ? undefined
-      : await spawnMongo({
+    // Every backend is opt-in and symmetric: spawned only when the project
+    // declared it in the manifest (spec.<x> present), unless the caller
+    // passed a one-off withoutX override. A project that uses none of these
+    // data services declares none and gets a bare env.
+    const mongo = (spec.mongo !== undefined && !opts.withoutMongo)
+      ? await spawnMongo({
           envId,
           image: mongoImage,
           labels,
           hostPort: spec.mongo?.port,
           replicaSet: spec.mongo?.replicaSet,
-        });
-    const redis = opts.withoutRedis
-      ? undefined
-      : await spawnRedis({ envId, image: redisImage, labels, hostPort: spec.redis?.port });
-    // Rabbit is opt-in: only spawned when the manifest declares
-    // backends.rabbit. (Mongo/Redis are spawned by default for backward
-    // compatibility — toggling that would break every existing project.)
-    const rabbitSpawn = (!opts.withoutRabbit && spec.rabbit !== undefined)
+        })
+      : undefined;
+    const redis = (spec.redis !== undefined && !opts.withoutRedis)
+      ? await spawnRedis({ envId, image: redisImage, labels, hostPort: spec.redis?.port })
+      : undefined;
+    const rabbitSpawn = (spec.rabbit !== undefined && !opts.withoutRabbit)
       ? await spawnRabbit({
           envId,
           image: rabbitImage,
@@ -290,28 +290,20 @@ export async function resolveBackends(
   envId?: string,
   override?: { mongoUrl?: string; redisUrl?: string; rabbitUrl?: string; dbName?: string },
 ): Promise<{ mongoUrl: string; redisUrl: string; rabbitUrl?: string; dbName?: string; envId?: string }> {
-  if (override?.mongoUrl && override?.redisUrl) {
-    return {
-      mongoUrl: override.mongoUrl,
-      redisUrl: override.redisUrl,
-      rabbitUrl: override.rabbitUrl,
-      dbName: override.dbName,
-    };
-  }
-  const env = await resolveEnv(envId, registry);
-  if (env && env.resolved.mongoUrl && env.resolved.redisUrl) {
-    return {
-      mongoUrl: override?.mongoUrl ?? env.resolved.mongoUrl,
-      redisUrl: override?.redisUrl ?? env.resolved.redisUrl,
-      rabbitUrl: override?.rabbitUrl ?? env.resolved.rabbitUrl,
-      dbName: override?.dbName ?? env.resolved.dbName,
-      envId: env.envId,
-    };
-  }
+  // Per-field precedence: explicit override > active/selected env's resolved
+  // URL > built-in compose fallback. Resolving per-field (rather than
+  // all-or-nothing) matters now that envs are selective: a redis-only env
+  // must keep its real redisUrl instead of being swapped wholesale for the
+  // fallback ports just because it has no mongo. The fallback only fills a
+  // service the env didn't spawn — callers that actually need that service
+  // already error clearly (see db.* / core/seed.ts).
+  const env =
+    override?.mongoUrl && override?.redisUrl ? null : await resolveEnv(envId, registry);
   return {
-    mongoUrl: override?.mongoUrl ?? FALLBACK_MONGO_URL,
-    redisUrl: override?.redisUrl ?? FALLBACK_REDIS_URL,
-    rabbitUrl: override?.rabbitUrl ?? FALLBACK_RABBIT_URL,
-    dbName: override?.dbName,
+    mongoUrl: override?.mongoUrl ?? env?.resolved.mongoUrl ?? FALLBACK_MONGO_URL,
+    redisUrl: override?.redisUrl ?? env?.resolved.redisUrl ?? FALLBACK_REDIS_URL,
+    rabbitUrl: override?.rabbitUrl ?? env?.resolved.rabbitUrl ?? FALLBACK_RABBIT_URL,
+    dbName: override?.dbName ?? env?.resolved.dbName,
+    envId: env?.envId,
   };
 }

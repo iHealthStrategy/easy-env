@@ -4,6 +4,9 @@
   "description": "easy-env MCP server: scenario replay + multi-backend state diff primitives for AI coding agents.",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "bin": {
     "easy-env-mcp": "./bin/easy-env-mcp.mjs",
     "easy-env-daemon": "./bin/easy-env-daemon.mjs",

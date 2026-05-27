@@ -7,6 +7,7 @@
 // caller didn't supply them — so the AI can write `vars.declare({items})`
 // without re-naming the project every time. The daemon NEVER opens any
 // file inside the project directory.
+import './core/requireNode.js'; // must be first: hard-exits on Node < 18
 import fs from 'node:fs';
 import path from 'node:path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';

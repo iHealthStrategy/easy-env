@@ -1,6 +1,7 @@
 // Daemon entry point. Boots the HTTP server, writes a PID file, wires up
 // graceful shutdown. Invoked via `bin/easy-env-daemon.mjs` or
 // `npm run daemon --workspace easy-env-mcp`.
+import '../core/requireNode.js'; // must be first: hard-exits on Node < 18
 import { serve } from '@hono/node-server';
 import { FsStore } from '../store/fsStore.js';
 import { buildContext } from '../core/context.js';

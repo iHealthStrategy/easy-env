@@ -4,6 +4,9 @@
   "description": "AI-native environment provisioning and behavior verification toolkit.",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "workspaces": [
     "packages/*"
   ],

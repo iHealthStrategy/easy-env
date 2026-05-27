@@ -28,9 +28,6 @@ export function EnvsList() {
                   <th>项目</th>
                   <th>状态</th>
                   <th>创建时间</th>
-                  <th>Mongo</th>
-                  <th>Redis</th>
-                  <th>Rabbit</th>
                 </tr>
               </thead>
               <tbody>
@@ -51,9 +48,6 @@ export function EnvsList() {
                         <span className={`badge ${e.status}`}>{envStatusLabel(e.status)}</span>
                       </td>
                       <td title={fmtTime(e.createdAt)}>{fmtRelative(e.createdAt)}</td>
-                      <td><code>{e.images.mongo ?? '—'}</code></td>
-                      <td><code>{e.images.redis ?? '—'}</code></td>
-                      <td><code>{e.images.rabbit ?? '—'}</code></td>
                     </tr>
                   );
                 })}

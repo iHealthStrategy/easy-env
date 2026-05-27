@@ -4,7 +4,7 @@ import type { UseQueryResult } from '@tanstack/react-query';
 interface Props<T> {
   query: UseQueryResult<T>;
   children: (data: T) => ReactNode;
-  emptyMessage?: string;
+  emptyMessage?: ReactNode;
   empty?: (data: T) => boolean;
 }
 

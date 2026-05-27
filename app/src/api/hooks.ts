@@ -58,6 +58,14 @@ export const useEnvs = () =>
     refetchInterval: LIVE_REFETCH_MS,
   });
 
+export function useEnvDown() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (envId: string) => api.downEnv(envId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.envs }),
+  });
+}
+
 export const useEnv = (id: string) =>
   useQuery({
     queryKey: queryKeys.env(id),

@@ -12,8 +12,63 @@ use std::sync::Mutex;
 use tauri::Manager;
 #[allow(unused_imports)]
 use tauri::Emitter;
-use tauri::menu::{AboutMetadata, MenuBuilder, SubmenuBuilder};
+use tauri::menu::{AboutMetadata, MenuBuilder, MenuItem, SubmenuBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+// Persisted UI preferences live in this store file (tauri-plugin-store).
+// Rust reads `closeBehavior` in the window-close handler; the frontend
+// Settings page + close dialog read/write it via the commands below.
+const SETTINGS_FILE: &str = "settings.json";
+const CLOSE_KEY: &str = "closeBehavior";
+
+/// One of "ask" | "minimize" | "quit". Defaults to "ask" when unset.
+fn read_close_behavior(app: &tauri::AppHandle) -> String {
+    use tauri_plugin_store::StoreExt;
+    app.store(SETTINGS_FILE)
+        .ok()
+        .and_then(|s| s.get(CLOSE_KEY))
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| "ask".to_string())
+}
+
+fn write_close_behavior(app: &tauri::AppHandle, behavior: &str) -> Result<(), String> {
+    use tauri_plugin_store::StoreExt;
+    let store = app.store(SETTINGS_FILE).map_err(|e| e.to_string())?;
+    store.set(CLOSE_KEY, serde_json::json!(behavior));
+    store.save().map_err(|e| e.to_string())
+}
+
+/// Bring the main window back to the foreground (from tray / hidden state).
+fn show_main(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// Stop the embedded daemon (so its Docker containers don't outlive the app).
+fn stop_daemon(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut guard) = state.daemon.lock() {
+            let _ = guard.stop();
+        }
+    }
+}
+
+/// Carry out a close decision. "minimize" hides to the tray and leaves the
+/// daemon running; anything else quits the app after stopping the daemon.
+fn perform_close_action(app: &tauri::AppHandle, action: &str) {
+    if action == "minimize" {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.hide();
+        }
+    } else {
+        stop_daemon(app);
+        app.exit(0);
+    }
+}
 
 pub struct AppState {
     pub daemon: Mutex<daemon::DaemonHandle>,
@@ -111,8 +166,8 @@ fn ensure_update_window(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
         WebviewUrl::App("index.html#/update".into()),
     )
     .title("软件更新 — easy-env")
-    .inner_size(520.0, 420.0)
-    .min_inner_size(440.0, 360.0)
+    .inner_size(400.0, 300.0)
+    .min_inner_size(360.0, 260.0)
     .resizable(false)
     .minimizable(false)
     .maximizable(false)
@@ -126,6 +181,40 @@ fn ensure_update_window(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
 #[tauri::command]
 fn open_update_window(app: tauri::AppHandle) -> Result<(), String> {
     ensure_update_window(&app).map_err(|e| e.to_string())
+}
+
+/// The version string of the `node` on PATH (e.g. "v20.11.1"), or None when
+/// node isn't found / doesn't run. Surfaced in Settings so the user can see
+/// at a glance whether they meet the Node 18+ requirement on this machine.
+#[tauri::command]
+fn node_version() -> Option<String> {
+    let node = which::which("node").ok()?;
+    let out = std::process::Command::new(node).arg("--version").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if v.is_empty() { None } else { Some(v) }
+}
+
+#[tauri::command]
+fn get_close_behavior(app: tauri::AppHandle) -> String {
+    read_close_behavior(&app)
+}
+
+#[tauri::command]
+fn set_close_behavior(app: tauri::AppHandle, behavior: String) -> Result<(), String> {
+    write_close_behavior(&app, &behavior)
+}
+
+/// Invoked by the close dialog: optionally persist the choice, then act on it.
+#[tauri::command]
+fn resolve_close(app: tauri::AppHandle, action: String, remember: bool) -> Result<(), String> {
+    if remember {
+        write_close_behavior(&app, &action)?;
+    }
+    perform_close_action(&app, &action);
+    Ok(())
 }
 
 #[tauri::command]
@@ -259,17 +348,64 @@ pub fn run() {
                     let _ = ensure_update_window(app);
                 }
             });
+
+            // Menu-bar tray. Lets the app keep running in the background when
+            // the user "collapses" it on close (closeBehavior = "minimize").
+            // Clicking the icon — or the Open item — restores the window;
+            // Quit stops the daemon and exits.
+            let tray_open = MenuItem::with_id(handle, "tray-open", "打开 easy-env", true, None::<&str>)?;
+            let tray_quit = MenuItem::with_id(handle, "tray-quit", "退出 easy-env", true, None::<&str>)?;
+            let tray_menu = MenuBuilder::new(handle).items(&[&tray_open, &tray_quit]).build()?;
+            let mut tray = TrayIconBuilder::with_id("main-tray")
+                .tooltip("easy-env")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "tray-open" => show_main(app),
+                    "tray-quit" => {
+                        stop_daemon(app);
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_main(tray.app_handle());
+                    }
+                });
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray = tray.icon(icon);
+            }
+            tray.build(app)?;
             Ok(())
         })
-        // Tear down the daemon when the main window is closed. Keeps Docker
-        // containers from being orphaned past app shutdown — the daemon itself
-        // sweeps them via SIGTERM.
+        // Decide what the main window's close button does based on the saved
+        // preference: "quit" tears down the daemon and exits (keeps Docker
+        // containers from being orphaned); "minimize" hides to the tray and
+        // leaves the daemon running; "ask" (default) holds the close and lets
+        // the UI prompt the user.
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
-                    if let Some(state) = window.app_handle().try_state::<AppState>() {
-                        if let Ok(mut guard) = state.daemon.lock() {
-                            let _ = guard.stop();
+                    let app = window.app_handle();
+                    match read_close_behavior(app).as_str() {
+                        "minimize" => {
+                            api.prevent_close();
+                            let _ = window.hide();
+                        }
+                        "quit" => {
+                            stop_daemon(app);
+                            app.exit(0);
+                        }
+                        _ => {
+                            // "ask": don't close yet — surface the dialog.
+                            api.prevent_close();
+                            let _ = app.emit("close-requested", ());
                         }
                     }
                 }
@@ -289,7 +425,23 @@ pub fn run() {
             paths_info,
             docker_status,
             open_update_window,
+            node_version,
+            get_close_behavior,
+            set_close_behavior,
+            resolve_close,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            // Single teardown point for EVERY exit path — window close,
+            // tray Quit, app-menu Quit, and Cmd+Q all funnel through here —
+            // so the daemon (and its Docker containers) never orphans.
+            // Idempotent with the explicit stop_daemon calls on the quit
+            // paths, which is fine.
+            tauri::RunEvent::ExitRequested { .. } => stop_daemon(app),
+            // Dock-icon click while collapsed to the tray (window hidden):
+            // bring the main window back.
+            tauri::RunEvent::Reopen { .. } => show_main(app),
+            _ => {}
+        });
 }

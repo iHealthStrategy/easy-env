@@ -369,6 +369,121 @@ button:hover { background: var(--border); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.mini { padding: 2px 8px; font-size: 11px; }
 
+/* Row teardown buttons: compact, and only flush red on the confirm step.
+   The ghost variant stays quiet until hovered so the list doesn't read as
+   a wall of red. */
+.btn-ghost-danger {
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  background: transparent;
+}
+.btn-ghost-danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: var(--red);
+}
+.btn-danger {
+  padding: 3px 10px;
+  font-size: 11px;
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+.btn-danger:hover { background: #dc2626; }
+
+/* Close-prompt modal. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+}
+.modal-card {
+  width: 360px;
+  max-width: calc(100vw - 48px);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+.modal-title { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+.modal-desc { margin: 0 0 16px; color: var(--fg-dim); font-size: 12.5px; line-height: 1.55; }
+.modal-actions { display: flex; gap: 10px; }
+.modal-actions button { flex: 1; padding: 8px 12px; }
+.modal-remember {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+.modal-remember input { margin-top: 1px; }
+
+/* Radio rows (Settings → close behavior). */
+.radio-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.radio-row + .radio-row { border-top: 1px solid var(--border); }
+.radio-row input { margin-top: 3px; }
+.radio-label { display: block; font-size: 13px; }
+.radio-desc { display: block; font-size: 11.5px; color: var(--fg-dim); margin-top: 2px; line-height: 1.5; }
+
+/* Help page. */
+.help-card { max-width: 760px; }
+.help-card p { margin: 0 0 10px; font-size: 13px; line-height: 1.7; color: var(--fg); }
+.help-card p:last-child { margin-bottom: 0; }
+.help-sub { color: var(--fg-dim) !important; }
+.help-note {
+  font-size: 12px !important;
+  color: var(--fg-dim) !important;
+  background: var(--bg-3);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.help-steps { margin: 0 0 10px; padding-left: 20px; }
+.help-steps li { font-size: 13px; line-height: 1.9; }
+.help-quote {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  background: var(--bg-3);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+.help-dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+.help-dl dt { font-size: 13px; font-weight: 500; white-space: nowrap; }
+.help-dl dd { margin: 0; font-size: 12.5px; color: var(--fg-dim); line-height: 1.6; }
+
+/* Image-pull indicator on a starting env. Pulsing so a multi-minute first-run
+   download reads as "working", not "stuck". */
+.pulling-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--accent);
+  vertical-align: middle;
+  animation: pulling-pulse 1.6s ease-in-out infinite;
+}
+.pulling-tag code { font-size: 11px; color: inherit; }
+@keyframes pulling-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
 /* Form controls — keep visual parity with buttons (same bg/border/radius). */
 select, input[type='text'], input:not([type]) {
   background: var(--bg-3);
@@ -576,7 +691,7 @@ select option { background: var(--bg-2); color: var(--fg); }
   color: var(--fg);
   /* The window has overlay traffic lights; reserve space at the top so
      the close/min buttons don't overlap the header card. */
-  padding: 28px 24px 24px;
+  padding: 30px 22px 20px;
 }
 /* Top strip lets the user drag the window from anywhere above the card. */
 .updater-drag {
@@ -597,25 +712,57 @@ select option { background: var(--bg-2); color: var(--fg); }
   flex-direction: column;
   background: transparent;
 }
+/* Centered, focused header: a tone-tinted round icon badge over the title.
+   Reads as a tidy modal in the small window rather than a left-aligned bar. */
 .updater-header {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 4px 4px 14px;
+  gap: 10px;
+  padding: 2px 4px 12px;
+  text-align: center;
 }
-/* Header tone is conveyed by the icon alone now — the gradient
-   backgrounds were noisy and made the small window feel busy. */
-.updater-icon  { font-size: 22px; line-height: 1; }
-.updater-title { font-size: 16px; font-weight: 600; margin: 0; }
+.updater-icon {
+  font-size: 22px;
+  line-height: 1;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+}
+.updater-header.tone-ok .updater-icon {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.4);
+}
+.updater-header.tone-info .updater-icon {
+  background: rgba(79, 140, 255, 0.12);
+  border-color: rgba(79, 140, 255, 0.4);
+}
+.updater-header.tone-error .updater-icon {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+.updater-title { font-size: 15px; font-weight: 600; margin: 0; }
 .updater-body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  align-items: center;
+  gap: 12px;
   padding: 0 4px 4px;
   overflow: auto;
 }
-.updater-desc { margin: 0; color: var(--fg-dim); font-size: 13px; line-height: 1.55; }
+.updater-desc {
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+}
 
 .updater-version-row {
   display: flex;
@@ -642,12 +789,14 @@ select option { background: var(--bg-2); color: var(--fg); }
 .updater-arrow { color: var(--fg-dim); font-weight: 500; }
 
 .updater-notes {
+  align-self: stretch;
   background: var(--bg-3);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 12px;
-  max-height: 140px;
+  max-height: 108px;
   overflow: auto;
+  text-align: left;
 }
 .updater-notes-label {
   font-size: 11px;
@@ -666,7 +815,7 @@ select option { background: var(--bg-2); color: var(--fg); }
   color: var(--fg);
 }
 
-.updater-progress { display: flex; flex-direction: column; gap: 8px; }
+.updater-progress { align-self: stretch; display: flex; flex-direction: column; gap: 8px; }
 .updater-progress-track {
   position: relative;
   height: 8px;
@@ -700,6 +849,7 @@ select option { background: var(--bg-2); color: var(--fg); }
 }
 
 .updater-error {
+  align-self: stretch;
   margin: 0;
   padding: 10px 12px;
   background: rgba(239, 68, 68, 0.08);
@@ -714,14 +864,17 @@ select option { background: var(--bg-2); color: var(--fg); }
 }
 
 .updater-actions {
+  align-self: stretch;
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 10px;
   margin-top: auto;
-  padding-top: 6px;
+  padding-top: 8px;
 }
 .updater-actions button {
-  min-width: 92px;
+  flex: 1;
+  max-width: 150px;
+  padding: 7px 12px;
 }
 .updater-actions button.primary {
   background: var(--accent);

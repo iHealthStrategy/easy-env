@@ -26,6 +26,9 @@ export interface EnvListItem {
   projectName: string | null;
   createdAt: string;
   status: EnvStatus;
+  /** While starting: the Docker image being pulled, if a download is in
+   *  progress (null once cached / ready). */
+  pullingImage?: string | null;
   resolved: ResolvedUrls;
   images: {
     mongo: string | null;
@@ -45,6 +48,7 @@ export interface EnvDetailResponse {
   projectName: string | null;
   createdAt: string;
   status: EnvStatus;
+  pullingImage?: string | null;
   resolved: ResolvedUrls;
   health: {
     mongoReachable: boolean;

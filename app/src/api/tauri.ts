@@ -80,6 +80,9 @@ export const tauri = {
   isTauri: IS_TAURI,
   paths: (): Promise<PathsInfo> =>
     IS_TAURI ? invoke('paths_info') : ensureTauri(),
+  /** `node --version` of the node on PATH (e.g. "v20.11.1"), or null. */
+  nodeVersion: (): Promise<string | null> =>
+    IS_TAURI ? invoke('node_version') : Promise.resolve(null),
   daemon: {
     status: (): Promise<DaemonStatus> =>
       IS_TAURI ? invoke('daemon_status') : ensureTauri(),
@@ -108,4 +111,18 @@ export const tauri = {
     unregister: (): Promise<McpStatus> =>
       IS_TAURI ? invoke('mcp_unregister') : ensureTauri(),
   },
+  // What the main window's close button does: 'ask' (prompt every time),
+  // 'minimize' (collapse to the menu-bar tray, daemon keeps running), or
+  // 'quit' (stop the daemon and exit). Backed by tauri-plugin-store.
+  closeBehavior: {
+    get: (): Promise<CloseBehavior> =>
+      IS_TAURI ? invoke('get_close_behavior') : Promise.resolve('ask'),
+    set: (behavior: CloseBehavior): Promise<void> =>
+      IS_TAURI ? invoke('set_close_behavior', { behavior }) : ensureTauri(),
+    /** Used by the close dialog: optionally remember, then perform the action. */
+    resolve: (action: Exclude<CloseBehavior, 'ask'>, remember: boolean): Promise<void> =>
+      IS_TAURI ? invoke('resolve_close', { action, remember }) : ensureTauri(),
+  },
 };
+
+export type CloseBehavior = 'ask' | 'minimize' | 'quit';

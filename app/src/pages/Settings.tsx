@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import {
   tauri,
+  type CloseBehavior,
   type DaemonStatus,
   type McpStatus,
   type PathsInfo,
@@ -18,6 +19,8 @@ export function Settings() {
   const [daemon, setDaemon] = useState<DaemonStatus | null>(null);
   const [skill, setSkill] = useState<SkillStatus | null>(null);
   const [mcp, setMcp] = useState<McpStatus | null>(null);
+  const [closeBehavior, setCloseBehavior] = useState<CloseBehavior>('ask');
+  const [nodeVer, setNodeVer] = useState<string | null>(null);
   const [state, setState] = useState<Loading>('loading');
   const [error, setError] = useState<string | null>(null);
 
@@ -32,16 +35,20 @@ export function Settings() {
     setState('loading');
     setError(null);
     try {
-      const [p, d, s, m] = await Promise.all([
+      const [p, d, s, m, cb, nv] = await Promise.all([
         tauri.paths(),
         tauri.daemon.status(),
         tauri.skill.status(),
         tauri.mcp.status(),
+        tauri.closeBehavior.get(),
+        tauri.nodeVersion(),
       ]);
       setPaths(p);
       setDaemon(d);
       setSkill(s);
       setMcp(m);
+      setCloseBehavior(cb);
+      setNodeVer(nv);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -74,6 +81,17 @@ export function Settings() {
       clearInterval(id);
     };
   }, []);
+
+  const changeCloseBehavior = async (b: CloseBehavior) => {
+    const prev = closeBehavior;
+    setCloseBehavior(b); // optimistic
+    try {
+      await tauri.closeBehavior.set(b);
+    } catch (e) {
+      setCloseBehavior(prev);
+      setError(String(e));
+    }
+  };
 
   const runToggle = async (kind: 'skill' | 'mcp' | 'daemon') => {
     setState('busy');
@@ -197,6 +215,31 @@ export function Settings() {
       </div>
 
       <div className="card">
+        <h3>关闭按钮行为</h3>
+        <p className="meta" style={{ margin: '0 0 12px' }}>
+          点窗口左上角关闭按钮时的行为。随时可在这里修改。
+        </p>
+        {([
+          ['ask', '每次询问', '弹窗让你选择收起还是退出。'],
+          ['minimize', '收起到菜单栏', '隐藏窗口,守护进程在后台继续运行;点菜单栏图标可重新打开。'],
+          ['quit', '退出应用', '停止守护进程并退出。'],
+        ] as [CloseBehavior, string, string][]).map(([value, label, desc]) => (
+          <label key={value} className="radio-row">
+            <input
+              type="radio"
+              name="close-behavior"
+              checked={closeBehavior === value}
+              onChange={() => changeCloseBehavior(value)}
+            />
+            <span>
+              <span className="radio-label">{label}</span>
+              <span className="radio-desc">{desc}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+
+      <div className="card">
         <h3>路径</h3>
         <dl className="dl">
           <dt>仓库根目录</dt>
@@ -227,10 +270,36 @@ export function Settings() {
           <dd><code>{paths?.claude_config_path ?? '—'}</code></dd>
           <dt>Node 可执行文件</dt>
           <dd><code>{paths?.node_binary ?? '未找到'}</code></dd>
+          <dt>Node 版本</dt>
+          <dd><NodeVersionBadge version={nodeVer} /></dd>
         </dl>
       </div>
       </div>
     </div>
+  );
+}
+
+// Shows the detected Node version with a pass/fail badge against the 18+
+// requirement. The daemon spawns the system `node`, so an old / missing Node
+// here means env.up will fail on this machine.
+function NodeVersionBadge({ version }: { version: string | null }) {
+  if (!version) {
+    return (
+      <>
+        <code>未检测到</code>{' '}
+        <span className="badge destroyed">需要 Node 18+</span>
+      </>
+    );
+  }
+  const major = parseInt(version.replace(/^v/, '').split('.')[0] ?? '', 10);
+  const ok = Number.isFinite(major) && major >= 18;
+  return (
+    <>
+      <code>{version}</code>{' '}
+      <span className={`badge ${ok ? 'ready' : 'destroyed'}`}>
+        {ok ? '满足要求' : '需要 18+'}
+      </span>
+    </>
   );
 }
 

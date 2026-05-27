@@ -144,6 +144,7 @@ export async function runEnvList(input: z.infer<typeof EnvListInput>, ctx: ToolC
       projectName: e.labels?.['easy-env.project'] ?? null,
       createdAt: e.createdAt,
       status: e.status,
+      pullingImage: e.pullingImage ?? null,
       resolved: e.resolved,
       images: {
         mongo: e.mongo?.image ?? null,
@@ -172,6 +173,7 @@ export async function runEnvStatus(input: z.infer<typeof EnvStatusInput>, ctx: T
     projectName: env.labels?.['easy-env.project'] ?? null,
     createdAt: env.createdAt,
     status: env.status,
+    pullingImage: env.pullingImage ?? null,
     resolved: env.resolved,
     health: { mongoReachable, redisReachable, rabbitReachable },
     containers: {

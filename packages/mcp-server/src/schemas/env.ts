@@ -33,6 +33,11 @@ export const ManagedEnv = z.object({
   }),
   labels: z.record(z.string(), z.string()),
   error: z.string().optional(),
+  // Transient: while status === 'starting', the Docker image currently being
+  // pulled (set only when it wasn't already present locally). Lets the UI show
+  // "downloading <image>…" instead of an indefinite "starting" on first run.
+  // Cleared once the env is ready.
+  pullingImage: z.string().optional(),
 });
 
 export type ContainerHandle = z.infer<typeof ContainerHandle>;

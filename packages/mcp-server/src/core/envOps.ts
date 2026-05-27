@@ -11,6 +11,7 @@ import {
   spawnRedis,
   spawnRabbit,
   stopAllForEnv,
+  imageExists,
   mongoUrlFor,
   redisUrlFor,
   rabbitUrlFor,
@@ -85,33 +86,50 @@ export async function envUp(
     const redisImage = spec.redis?.image ?? DEFAULT_REDIS_IMAGE;
     const rabbitImage = spec.rabbit?.image ?? DEFAULT_RABBIT_IMAGE;
 
+    // Surface a pull on the env record so the UI can show "downloading
+    // <image>" while testcontainers fetches it (first run on a fresh machine
+    // can take minutes). Only flag images not already cached locally; clear
+    // again before the next backend so the field reflects what's downloading
+    // right now.
+    const markPulling = async (image: string) => {
+      if (!(await imageExists(image))) {
+        await registry.save({ ...initial, pullingImage: image });
+      }
+    };
+
     // Every backend is opt-in and symmetric: spawned only when the project
     // declared it in the manifest (spec.<x> present), unless the caller
     // passed a one-off withoutX override. A project that uses none of these
     // data services declares none and gets a bare env.
-    const mongo = (spec.mongo !== undefined && !opts.withoutMongo)
-      ? await spawnMongo({
-          envId,
-          image: mongoImage,
-          labels,
-          hostPort: spec.mongo?.port,
-          replicaSet: spec.mongo?.replicaSet,
-        })
-      : undefined;
-    const redis = (spec.redis !== undefined && !opts.withoutRedis)
-      ? await spawnRedis({ envId, image: redisImage, labels, hostPort: spec.redis?.port })
-      : undefined;
-    const rabbitSpawn = (spec.rabbit !== undefined && !opts.withoutRabbit)
-      ? await spawnRabbit({
-          envId,
-          image: rabbitImage,
-          labels,
-          hostPort: spec.rabbit.port,
-          managementHostPort: spec.rabbit.managementPort,
-          user: spec.rabbit.user,
-          password: spec.rabbit.password,
-        })
-      : undefined;
+    let mongo;
+    if (spec.mongo !== undefined && !opts.withoutMongo) {
+      await markPulling(mongoImage);
+      mongo = await spawnMongo({
+        envId,
+        image: mongoImage,
+        labels,
+        hostPort: spec.mongo?.port,
+        replicaSet: spec.mongo?.replicaSet,
+      });
+    }
+    let redis;
+    if (spec.redis !== undefined && !opts.withoutRedis) {
+      await markPulling(redisImage);
+      redis = await spawnRedis({ envId, image: redisImage, labels, hostPort: spec.redis?.port });
+    }
+    let rabbitSpawn;
+    if (spec.rabbit !== undefined && !opts.withoutRabbit) {
+      await markPulling(rabbitImage);
+      rabbitSpawn = await spawnRabbit({
+        envId,
+        image: rabbitImage,
+        labels,
+        hostPort: spec.rabbit.port,
+        managementHostPort: spec.rabbit.managementPort,
+        user: spec.rabbit.user,
+        password: spec.rabbit.password,
+      });
+    }
     const rabbit = rabbitSpawn?.handle;
 
     const ready: ManagedEnv = {

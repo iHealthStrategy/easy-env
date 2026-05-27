@@ -1,5 +1,6 @@
-import { Link, useParams } from 'react-router-dom';
-import { useEnv } from '../api/hooks';
+import { useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEnv, useEnvDown } from '../api/hooks';
 import { QueryState } from '../components/QueryState';
 import { envStatusLabel, fmtTime } from '../components/format';
 import type { ContainerHandle } from '../api/types';
@@ -14,6 +15,7 @@ export function EnvDetail() {
         <h2>
           <Link to="/">环境</Link> / <code>{envId}</code>
         </h2>
+        <DestroyEnvButton envId={envId} />
       </div>
       <div className="page-body">
 
@@ -26,7 +28,14 @@ export function EnvDetail() {
                 <dt>项目</dt>
                 <dd>{env.projectName ? <code>{env.projectName}</code> : <span className="meta">—</span>}</dd>
                 <dt>状态</dt>
-                <dd><span className={`badge ${env.status}`}>{envStatusLabel(env.status)}</span></dd>
+                <dd>
+                  <span className={`badge ${env.status}`}>{envStatusLabel(env.status)}</span>
+                  {env.status === 'starting' && env.pullingImage && (
+                    <span className="pulling-tag" title={`正在下载镜像 ${env.pullingImage}`}>
+                      ⬇ 正在下载 <code>{env.pullingImage}</code>(首次较慢)
+                    </span>
+                  )}
+                </dd>
                 <dt>创建时间</dt>
                 <dd>{fmtTime(env.createdAt)}</dd>
                 <dt>Mongo 可达</dt>
@@ -112,6 +121,37 @@ export function EnvDetail() {
       </QueryState>
       </div>
     </div>
+  );
+}
+
+// Teardown from the detail view (mirrors the list's row button). Two-step
+// confirm, then navigate back to the list once the env is destroyed.
+function DestroyEnvButton({ envId }: { envId: string }) {
+  const [confirming, setConfirming] = useState(false);
+  const navigate = useNavigate();
+  const down = useEnvDown();
+
+  if (!confirming) {
+    return (
+      <button className="btn-ghost-danger" onClick={() => setConfirming(true)}>
+        销毁环境
+      </button>
+    );
+  }
+  return (
+    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+      <span className="meta">停止容器并移除?</span>
+      <button
+        className="btn-danger"
+        disabled={down.isPending}
+        onClick={() => down.mutate(envId, { onSuccess: () => navigate('/') })}
+      >
+        {down.isPending ? '销毁中…' : '确认销毁'}
+      </button>
+      <button disabled={down.isPending} onClick={() => setConfirming(false)}>
+        取消
+      </button>
+    </span>
   );
 }
 

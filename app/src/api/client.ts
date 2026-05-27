@@ -96,6 +96,13 @@ export const api = {
     ),
   getEnv: (envId: string) =>
     request<EnvDetailResponse>(`/api/envs/${encodeURIComponent(envId)}`),
+  // Tear down an env (stop its containers + drop it from the registry).
+  // Goes through the generic tool route the daemon exposes for env.down.
+  downEnv: (envId: string) =>
+    request<{ envId: string; destroyed: boolean }>('/api/tools/env.down', {
+      method: 'POST',
+      body: { envId },
+    }),
   listSnapshots: () => request<SnapshotsListResponse>('/api/snapshots'),
   getSnapshot: (id: string) =>
     request<SnapshotDetailResponse>(`/api/snapshots/${encodeURIComponent(id)}`),

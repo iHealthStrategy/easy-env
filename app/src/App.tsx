@@ -6,10 +6,12 @@ import { EnvDetail } from './pages/EnvDetail';
 import { McpService } from './pages/McpService';
 import { Variables } from './pages/Variables';
 import { Settings } from './pages/Settings';
+import { Help } from './pages/Help';
 import { Updater } from './pages/Updater';
 import { DaemonStatusBar } from './components/DaemonStatusBar';
 import { DockerBanner } from './components/DockerBanner';
 import { BrandHeader } from './components/BrandHeader';
+import { CloseDialog } from './components/CloseDialog';
 import { IS_TAURI, useUpdater } from './hooks/useUpdater';
 
 // Explicit drag handler — more reliable than data-tauri-drag-region,
@@ -55,6 +57,7 @@ function MainShell() {
 
   return (
     <div className="app">
+      <CloseDialog />
       <aside className="sidebar">
         <BrandHeader hasUpdate={hasUpdate} />
         <nav>
@@ -62,6 +65,7 @@ function MainShell() {
           <NavLink to="/vars">变量</NavLink>
           <NavLink to="/mcp">MCP 服务</NavLink>
           <NavLink to="/settings">设置</NavLink>
+          <NavLink to="/help">帮助</NavLink>
         </nav>
         <DaemonStatusBar />
       </aside>
@@ -74,6 +78,7 @@ function MainShell() {
           <Route path="/mcp" element={<McpService />} />
           <Route path="/vars" element={<Variables />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/help" element={<Help />} />
         </Routes>
       </main>
     </div>

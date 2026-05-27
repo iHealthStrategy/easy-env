@@ -53,6 +53,17 @@ export async function dockerRemoveByEnvId(envId: string): Promise<string[]> {
 }
 
 /**
+ * True when the image is already present in the local Docker image store —
+ * i.e. `env.up` won't have to pull it. Used to surface "downloading <image>"
+ * in the UI only when a pull will actually happen (first run on a machine
+ * that hasn't fetched mongo/redis/rabbit yet).
+ */
+export async function imageExists(image: string): Promise<boolean> {
+  const res = await dockerExec(['image', 'inspect', image]);
+  return res.code === 0;
+}
+
+/**
  * Returns the docker state ("running" | "exited" | "created" | …) of every
  * container labelled with the given envId. Empty array = no such containers.
  */

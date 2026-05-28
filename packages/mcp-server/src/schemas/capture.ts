@@ -12,12 +12,21 @@ export const RedisCaptureSpec = z.object({
 // non-default database) and the column used to key rows for diffing. When
 // `orderBy` is omitted, diff falls back to full-row JSON equality and
 // reports only added/removed (no modified) — fine for append-only logs.
+//
+// name / database / orderBy all splice into SQL via escapeClickhouseIdent;
+// we still restrict to identifier characters so malformed input gives a
+// schema error at the tool boundary rather than reaching the wire.
+const SqlIdent = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'must be a valid SQL identifier');
 export const ClickhouseTableSpec = z.object({
-  name: z.string().min(1),
+  name: SqlIdent,
   /** Defaults to the env's clickhouseDbName (usually "default"). */
-  database: z.string().min(1).optional(),
+  database: SqlIdent.optional(),
   /** Column used as a row key for diff matching (e.g. "id"). Optional. */
-  orderBy: z.string().min(1).optional(),
+  orderBy: SqlIdent.optional(),
 });
 
 export const ClickhouseCaptureSpec = z.object({

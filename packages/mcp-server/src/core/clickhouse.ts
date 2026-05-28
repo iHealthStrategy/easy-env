@@ -170,3 +170,37 @@ export async function clickhouseTruncate(
     `TRUNCATE TABLE ${escapeClickhouseIdent(database)}.${escapeClickhouseIdent(table)}`,
   );
 }
+
+/** List user-owned table names in a database. Excludes system engines so
+ *  envReset doesn't try to drop materialized views' inner tables or other
+ *  things it didn't create. */
+export async function clickhouseListUserTables(
+  baseUrl: string,
+  database: string,
+): Promise<string[]> {
+  // system.tables.engine for plain user tables is one of MergeTree,
+  // ReplicatedMergeTree, Log, Memory, etc. Filter out anything starting
+  // with "System" plus the inner tables that materialized views create
+  // (engine="MaterializedView" plus their .inner_id_* shadow tables).
+  const rows = await clickhouseQueryRows(
+    baseUrl,
+    `SELECT name FROM system.tables WHERE database = '${database.replace(/'/g, "''")}' AND engine NOT LIKE 'System%' AND name NOT LIKE '.inner%' FORMAT JSONEachRow`,
+  );
+  return rows.map((r) => String(r.name));
+}
+
+/** Drop every user table inside <database>. Used by envReset when the
+ *  database itself can't be dropped (ClickHouse refuses DROP DATABASE
+ *  default with Code 219). Idempotent: missing tables are tolerated. */
+export async function clickhouseClearDatabase(
+  baseUrl: string,
+  database: string,
+): Promise<void> {
+  const tables = await clickhouseListUserTables(baseUrl, database);
+  for (const t of tables) {
+    await clickhouseExec(
+      baseUrl,
+      `DROP TABLE IF EXISTS ${escapeClickhouseIdent(database)}.${escapeClickhouseIdent(t)}`,
+    );
+  }
+}

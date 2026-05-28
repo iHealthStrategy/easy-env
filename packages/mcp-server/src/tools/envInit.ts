@@ -52,8 +52,9 @@ const ClickhouseBackendPatch = z.object({
   // is not exposed — easy-env's seed/diff helpers all use HTTP.
   port: z.number().int().min(1).max(65535).optional(),
   // Primary database name (env.up creates it on first boot; env.reset
-  // drops + recreates it). Defaults to "default".
-  dbName: z.string().min(1).optional(),
+  // drops + recreates it). Defaults to "default". Constrained to SQL
+  // identifier chars because we splice it into DDL.
+  dbName: z.string().min(1).max(128).regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'dbName must be a valid SQL identifier').optional(),
   // Enable embedded Keeper + synthetic single-node cluster. Presence (even
   // empty {}) turns it ON; omit to keep the lighter single-node-no-Keeper
   // boot (default). Needed only when the project uses ReplicatedMergeTree /

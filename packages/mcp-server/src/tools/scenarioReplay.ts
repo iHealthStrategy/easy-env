@@ -45,12 +45,15 @@ export async function runScenarioReplay(input: ScenarioReplayInput, ctx: ToolCon
       input.envId,
       input.scenario.backends,
     );
+    // Only include ClickHouse fields when the env actually declared it —
+    // otherwise the persisted scenario config picks up a phantom URL for
+    // backends the project doesn't use.
     const backends = {
       mongoUrl: resolved.mongoUrl,
       dbName: resolved.dbName,
       redisUrl: resolved.redisUrl,
-      clickhouseUrl: resolved.clickhouseUrl,
-      clickhouseDbName: resolved.clickhouseDbName,
+      ...(resolved.clickhouseUrl ? { clickhouseUrl: resolved.clickhouseUrl } : {}),
+      ...(resolved.clickhouseDbName ? { clickhouseDbName: resolved.clickhouseDbName } : {}),
     };
     scenario = ScenarioConfig.parse({
       ...input.scenario,

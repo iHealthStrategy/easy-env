@@ -87,9 +87,19 @@ function clickhouseTableDiff(
 ) {
   const beforeRows = before?.rows ?? [];
   const afterRows = after?.rows ?? [];
-  // Prefer after's orderBy (we're diffing toward the new state); if absent,
-  // fall back to before's. When neither side declares a key, identity is
-  // the full row JSON.
+  // The two snapshots are required to agree on orderBy — if they don't, the
+  // diff would be silently incoherent (one direction reports "modified", the
+  // other "removed + added" for the same data drift). Force the caller to
+  // re-capture with a consistent spec instead.
+  if (
+    before !== undefined &&
+    after !== undefined &&
+    (before.orderBy ?? null) !== (after.orderBy ?? null)
+  ) {
+    throw new Error(
+      `clickhouse table diff: orderBy mismatch between snapshots (before=${JSON.stringify(before.orderBy)}, after=${JSON.stringify(after.orderBy)}). Re-capture both snapshots with the same spec.`,
+    );
+  }
   const orderBy = after?.orderBy ?? before?.orderBy ?? null;
   if (!orderBy) {
     // Full-row equality. No "modified" possible — a changed row looks like
@@ -100,8 +110,17 @@ function clickhouseTableDiff(
     const removed = beforeRows.filter((r) => !seenAfter.has(JSON.stringify(r)));
     return { added, removed, modified: [] as Array<{ key: unknown; changes: Record<string, { from: unknown; to: unknown }> }> };
   }
-  const beforeByKey = new Map(beforeRows.map((r) => [JSON.stringify(r[orderBy]), r]));
-  const afterByKey = new Map(afterRows.map((r) => [JSON.stringify(r[orderBy]), r]));
+  // Rows that don't actually carry the orderBy column (schema drift, NULL
+  // PK, virtual column on a view) must NOT collide on a single Map slot
+  // keyed by `JSON.stringify(undefined)`. Fall back to the row's full JSON
+  // for those — they'll only match identical rows, which is the right
+  // semantic (we can't reliably claim they're the "same row" without a key).
+  const keyFor = (r: Record<string, unknown>): string => {
+    const v = r[orderBy];
+    return v === undefined ? `__no_key__:${JSON.stringify(r)}` : JSON.stringify(v);
+  };
+  const beforeByKey = new Map(beforeRows.map((r) => [keyFor(r), r]));
+  const afterByKey = new Map(afterRows.map((r) => [keyFor(r), r]));
   const added: Array<Record<string, unknown>> = [];
   const removed: Array<Record<string, unknown>> = [];
   const modified: Array<{ key: unknown; changes: Record<string, { from: unknown; to: unknown }> }> = [];

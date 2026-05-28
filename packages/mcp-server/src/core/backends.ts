@@ -27,7 +27,11 @@ export const DEFAULT_CLICKHOUSE_REPLICA = 'r1';
 export const FALLBACK_MONGO_URL = 'mongodb://localhost:27018';
 export const FALLBACK_REDIS_URL = 'redis://localhost:6380';
 export const FALLBACK_RABBIT_URL = 'amqp://guest:guest@localhost:5673';
-export const FALLBACK_CLICKHOUSE_URL = 'http://localhost:8124';
+// No FALLBACK_CLICKHOUSE_URL — ClickHouse is opt-in via env.init, and
+// silently dialling localhost:8124 for projects that never declared it
+// produced phantom URLs in persisted scenario configs (see code review
+// finding #1). Callers that need clickhouseUrl must declare the backend
+// explicitly, and tools detect absence as "skip ClickHouse".
 
 export interface BackendsSpec {
   mongo?: { image?: string; port?: number; dbName?: string; replicaSet?: string };

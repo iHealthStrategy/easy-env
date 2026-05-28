@@ -165,6 +165,21 @@ async function main() {
       assert(rejected, 'invalid cluster name (XML-unsafe) must be rejected by env.init');
       console.log('  ✓ invalid cluster name (XML-unsafe) rejected by env.init');
 
+      // Regression for code-review #7: clickhouse.dbName must be a SQL
+      // identifier — backslashes, semicolons, etc. were previously only
+      // backtick-escaped and could splice into DDL.
+      let dbNameRejected = false;
+      try {
+        await runEnvInit(
+          { projectName: 'sel-fixture', projectRoot, clickhouse: { dbName: "evil; DROP DATABASE x;--" } },
+          ctx,
+        );
+      } catch {
+        dbNameRejected = true;
+      }
+      assert(dbNameRejected, 'non-identifier dbName must be rejected by env.init');
+      console.log('  ✓ non-identifier clickhouse.dbName rejected (fix #7)');
+
       // Omitting redis on a later call preserves it; adding mongo declares it.
       const addMongo = await runEnvInit(
         { projectName: 'sel-fixture', projectRoot, mongo: { dbName: 'x' } },

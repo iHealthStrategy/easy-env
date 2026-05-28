@@ -57,14 +57,27 @@ export const ClickhouseClusterManifest = z.object({
   replica: z.string().min(1).optional(),
 });
 
+// ClickHouse database/table identifiers we splice into SQL. Restricting
+// the manifest schema is the simplest defense against SQL injection via
+// project-supplied config — escapeClickhouseIdent quotes backticks but
+// can't defend against backslash / control chars in the body. Standard
+// ClickHouse identifier rules: letter or underscore start, then letters /
+// digits / underscores.
+const SqlIdent = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'must be a valid SQL identifier (letters, digits, underscore; not starting with a digit)');
+
 export const ClickhouseBackendManifest = z.object({
   image: z.string().min(1).optional(),
   // Host port mapped to container HTTP port 8123. Native protocol (9000)
   // is not exposed by easy-env — the project must use the HTTP interface.
   port: z.number().int().min(1).max(65535).optional(),
   // Primary database name. easy-env auto-creates it on env.up so the
-  // first query against it doesn't 404. Defaults to "default".
-  dbName: z.string().min(1).optional(),
+  // first query against it doesn't 404. Defaults to "default". Constrained
+  // to identifier-style characters because it's spliced into DDL.
+  dbName: SqlIdent.optional(),
   // Enable embedded Keeper + synthetic single-node cluster. Presence (even
   // empty {}) turns the cluster mode ON; absence keeps single-node, no Keeper.
   cluster: ClickhouseClusterManifest.optional(),

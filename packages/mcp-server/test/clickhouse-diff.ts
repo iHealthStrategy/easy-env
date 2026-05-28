@@ -114,6 +114,46 @@ function main() {
   assert(!Array.isArray(ch.profiles) && profiles.database === 'analytics', 'database override parsed');
   console.log('  ✓ JsonSeedSpec clickhouse: array shorthand + long-form modes parse');
 
+  // ── 5. Regression for code-review #2: rows missing the orderBy column
+  //      must NOT collide on a single Map key. Two distinct rows both
+  //      lacking `id` should both appear (as added or removed), not
+  //      collapse into one.
+  const beforeMissingKey = snap('snap_b3', '2026-01-01T00:00:00Z', {
+    'default.partial': {
+      orderBy: 'id',
+      rows: [{ id: 1, name: 'a' }, { name: 'noid-1' }, { name: 'noid-2' }],
+    },
+  });
+  const afterMissingKey = snap('snap_a3', '2026-01-01T00:01:00Z', {
+    'default.partial': {
+      orderBy: 'id',
+      rows: [{ id: 1, name: 'a' }],
+    },
+  });
+  const d3 = diffSnapshots(beforeMissingKey, afterMissingKey);
+  const t3 = d3.clickhouse['default.partial'];
+  assert(t3.removed.length === 2, `both no-key rows must be reported as removed, got ${t3.removed.length}`);
+  assert(t3.added.length === 0, 'no rows should be added');
+  console.log('  ✓ rows missing orderBy column no longer collide (fix #2)');
+
+  // ── 6. Regression for code-review #5: snapshots with mismatched
+  //      orderBy values must throw instead of silently producing
+  //      direction-dependent diffs.
+  const beforeKeyed = snap('snap_b4', '2026-01-01T00:00:00Z', {
+    'default.events': { orderBy: 'id', rows: [{ id: 1 }] },
+  });
+  const afterUnkeyed = snap('snap_a4', '2026-01-01T00:01:00Z', {
+    'default.events': { orderBy: null, rows: [{ id: 1 }] },
+  });
+  let mismatchThrew = false;
+  try {
+    diffSnapshots(beforeKeyed, afterUnkeyed);
+  } catch (e) {
+    mismatchThrew = /orderBy mismatch/.test((e as Error).message);
+  }
+  assert(mismatchThrew, 'orderBy mismatch between snapshots must throw a clear error');
+  console.log('  ✓ orderBy mismatch between snapshots throws (fix #5)');
+
   console.log('clickhouse-diff: ALL PASS');
 }
 

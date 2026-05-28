@@ -128,14 +128,21 @@ export async function applyJsonSeed(
         : { mode: raw.mode, database: raw.database ?? defaultDb, rows: raw.rows };
       if (mode === 'replace') {
         // TRUNCATE is idempotent and cheap; the table must already exist
-        // (we don't run DDL — too schema-specific). Ignore "doesn't exist"
+        // (we don't run DDL — too schema-specific). Ignore "table missing"
         // so the first seed against an empty server can succeed by relying
-        // on a seed script having created the table first.
+        // on a seed script having created the table first. ClickHouse
+        // reports this as error Code: 60 (UNKNOWN_TABLE); the human-readable
+        // message has historically been "doesn't exist" and "does not exist"
+        // depending on version, so we accept both forms plus the code.
         try {
           await clickhouseTruncate(env.resolved.clickhouseUrl, database, tableName);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          if (!/doesn'?t exist|UNKNOWN_TABLE/i.test(msg)) throw err;
+          const isMissingTable =
+            /\bCode:\s*60\b/.test(msg) ||
+            /UNKNOWN_TABLE/i.test(msg) ||
+            /(does ?n'?t|does not) exist/i.test(msg);
+          if (!isMissingTable) throw err;
         }
       }
       if (rows.length > 0) {

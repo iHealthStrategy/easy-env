@@ -17,7 +17,7 @@ import { spawn } from 'node:child_process';
 import { GenericContainer, type StartedTestContainer } from 'testcontainers';
 import type { ContainerHandle } from '../schemas/env.js';
 import { DEFAULT_RABBIT_USER, DEFAULT_RABBIT_PASSWORD } from './backends.js';
-import { buildClusterConfigXml, type ClickhouseClusterConfig } from './clickhouse.js';
+import { buildClusterConfigXml, escapeClickhouseIdent, type ClickhouseClusterConfig } from './clickhouse.js';
 
 export type BackendKind = 'mongo' | 'redis' | 'rabbit' | 'clickhouse';
 
@@ -448,7 +448,7 @@ async function createClickhouseDatabase(hostPort: number, dbName: string): Promi
   const url = `http://localhost:${hostPort}/`;
   const res = await fetch(url, {
     method: 'POST',
-    body: `CREATE DATABASE IF NOT EXISTS \`${dbName.replace(/`/g, '``')}\``,
+    body: `CREATE DATABASE IF NOT EXISTS ${escapeClickhouseIdent(dbName)}`,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');

@@ -49,6 +49,8 @@ export async function runScenarioReplay(input: ScenarioReplayInput, ctx: ToolCon
       mongoUrl: resolved.mongoUrl,
       dbName: resolved.dbName,
       redisUrl: resolved.redisUrl,
+      clickhouseUrl: resolved.clickhouseUrl,
+      clickhouseDbName: resolved.clickhouseDbName,
     };
     scenario = ScenarioConfig.parse({
       ...input.scenario,

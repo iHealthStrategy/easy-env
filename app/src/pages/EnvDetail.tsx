@@ -48,6 +48,12 @@ export function EnvDetail() {
                     <dd>{env.health.rabbitReachable ? '是' : '否'}</dd>
                   </>
                 )}
+                {env.containers.clickhouse && (
+                  <>
+                    <dt>ClickHouse 可达</dt>
+                    <dd>{env.health.clickhouseReachable ? '是' : '否'}</dd>
+                  </>
+                )}
                 {env.error && (
                   <>
                     <dt>错误</dt>
@@ -84,6 +90,24 @@ export function EnvDetail() {
                     <dd><a href={env.resolved.rabbitManagementUrl} target="_blank" rel="noreferrer"><code>{env.resolved.rabbitManagementUrl}</code></a></dd>
                   </>
                 )}
+                {env.resolved.clickhouseUrl && (
+                  <>
+                    <dt>clickhouseUrl</dt>
+                    <dd><code>{env.resolved.clickhouseUrl}</code></dd>
+                  </>
+                )}
+                {env.resolved.clickhouseDbName && (
+                  <>
+                    <dt>clickhouseDbName</dt>
+                    <dd><code>{env.resolved.clickhouseDbName}</code></dd>
+                  </>
+                )}
+                {env.resolved.clickhouseCluster && (
+                  <>
+                    <dt>clickhouseCluster</dt>
+                    <dd><code>{env.resolved.clickhouseCluster}</code> <span className="meta">(Keeper + 单节点集群)</span></dd>
+                  </>
+                )}
                 {env.resolved.dbName && (
                   <>
                     <dt>dbName</dt>
@@ -102,6 +126,7 @@ export function EnvDetail() {
             <ContainerCard title="Mongo" handle={env.containers.mongo} />
             <ContainerCard title="Redis" handle={env.containers.redis} />
             <ContainerCard title="Rabbit" handle={env.containers.rabbit} />
+            <ContainerCard title="ClickHouse" handle={env.containers.clickhouse} />
 
             {Object.keys(env.labels).length > 0 && (
               <div className="card">

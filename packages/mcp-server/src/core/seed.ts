@@ -18,6 +18,7 @@ import type { ToolContext } from './context.js';
 import type { ManagedEnv } from '../schemas/env.js';
 import { JsonSeedSpec, type RabbitTopology } from '../schemas/seed.js';
 import { resolveVars } from './vars.js';
+import { clickhouseInsertRows, clickhouseTruncate } from './clickhouse.js';
 
 /** Guard: seed paths must resolve INSIDE projectRoot. Absolute paths and
  *  `..` escapes are rejected — the AI is supposed to ship paths from
@@ -40,6 +41,7 @@ export interface JsonSeedRunResult {
   mongo: Array<{ db: string; collection: string; mode: string; inserted: number }>;
   redis: Array<{ key: string; type: string }>;
   rabbit?: { exchanges: number; queues: number; bindings: number };
+  clickhouse: Array<{ database: string; table: string; mode: string; inserted: number }>;
 }
 
 export async function applyJsonSeed(
@@ -48,7 +50,7 @@ export async function applyJsonSeed(
   rabbit?: { user: string; password: string; managementUrl: string },
 ): Promise<JsonSeedRunResult> {
   const parsed = JsonSeedSpec.parse(spec);
-  const result: JsonSeedRunResult = { mongo: [], redis: [] };
+  const result: JsonSeedRunResult = { mongo: [], redis: [], clickhouse: [] };
 
   if (parsed.mongo) {
     if (!env.resolved.mongoUrl) throw new Error('seed.mongo present but env has no mongoUrl');
@@ -113,6 +115,34 @@ export async function applyJsonSeed(
     if (!rabbit) throw new Error('seed.rabbit present but env has no rabbit backend configured');
     const counts = await applyRabbitTopology(parsed.rabbit, rabbit);
     result.rabbit = counts;
+  }
+
+  if (parsed.clickhouse) {
+    if (!env.resolved.clickhouseUrl) {
+      throw new Error('seed.clickhouse present but env has no clickhouseUrl');
+    }
+    const defaultDb = env.resolved.clickhouseDbName ?? 'default';
+    for (const [tableName, raw] of Object.entries(parsed.clickhouse)) {
+      const { mode, database, rows } = Array.isArray(raw)
+        ? { mode: 'replace' as const, database: defaultDb, rows: raw }
+        : { mode: raw.mode, database: raw.database ?? defaultDb, rows: raw.rows };
+      if (mode === 'replace') {
+        // TRUNCATE is idempotent and cheap; the table must already exist
+        // (we don't run DDL — too schema-specific). Ignore "doesn't exist"
+        // so the first seed against an empty server can succeed by relying
+        // on a seed script having created the table first.
+        try {
+          await clickhouseTruncate(env.resolved.clickhouseUrl, database, tableName);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!/doesn'?t exist|UNKNOWN_TABLE/i.test(msg)) throw err;
+        }
+      }
+      if (rows.length > 0) {
+        await clickhouseInsertRows(env.resolved.clickhouseUrl, database, tableName, rows);
+      }
+      result.clickhouse.push({ database, table: tableName, mode, inserted: rows.length });
+    }
   }
 
   return result;
@@ -279,6 +309,8 @@ export async function runSeedScript(opts: {
   if (containers?.redisUrl) env.EASY_ENV_REDIS_URL = containers.redisUrl;
   if (containers?.rabbitUrl) env.EASY_ENV_RABBIT_URL = containers.rabbitUrl;
   if (containers?.rabbitManagementUrl) env.EASY_ENV_RABBIT_MGMT_URL = containers.rabbitManagementUrl;
+  if (containers?.clickhouseUrl) env.EASY_ENV_CLICKHOUSE_URL = containers.clickhouseUrl;
+  if (containers?.clickhouseDbName) env.EASY_ENV_CLICKHOUSE_DB = containers.clickhouseDbName;
   if (containers?.dbName) env.EASY_ENV_MONGO_DB = containers.dbName;
 
   return new Promise((resolve, reject) => {

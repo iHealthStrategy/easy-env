@@ -43,10 +43,38 @@ export const RabbitBackendManifest = z.object({
   password: z.string().min(1).optional(),
 });
 
+// Cluster names become XML element names in the <remote_servers> config
+// block, so they must be a strict identifier. Same shape we'd accept in
+// ClickHouse's own config — letters/digits/underscore, not starting with a digit.
+const XmlIdent = z
+  .string()
+  .min(1)
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'must be a valid XML identifier (letters, digits, underscore; not starting with a digit)');
+
+export const ClickhouseClusterManifest = z.object({
+  name: XmlIdent.optional(),
+  shard: z.string().min(1).optional(),
+  replica: z.string().min(1).optional(),
+});
+
+export const ClickhouseBackendManifest = z.object({
+  image: z.string().min(1).optional(),
+  // Host port mapped to container HTTP port 8123. Native protocol (9000)
+  // is not exposed by easy-env — the project must use the HTTP interface.
+  port: z.number().int().min(1).max(65535).optional(),
+  // Primary database name. easy-env auto-creates it on env.up so the
+  // first query against it doesn't 404. Defaults to "default".
+  dbName: z.string().min(1).optional(),
+  // Enable embedded Keeper + synthetic single-node cluster. Presence (even
+  // empty {}) turns the cluster mode ON; absence keeps single-node, no Keeper.
+  cluster: ClickhouseClusterManifest.optional(),
+});
+
 export const BackendsManifest = z.object({
   mongo: MongoBackendManifest.optional(),
   redis: RedisBackendManifest.optional(),
   rabbit: RabbitBackendManifest.optional(),
+  clickhouse: ClickhouseBackendManifest.optional(),
 });
 
 export const ProjectManifest = z.object({
@@ -64,4 +92,6 @@ export type ProjectManifest = z.infer<typeof ProjectManifest>;
 export type MongoBackendManifest = z.infer<typeof MongoBackendManifest>;
 export type RedisBackendManifest = z.infer<typeof RedisBackendManifest>;
 export type RabbitBackendManifest = z.infer<typeof RabbitBackendManifest>;
+export type ClickhouseBackendManifest = z.infer<typeof ClickhouseBackendManifest>;
+export type ClickhouseClusterManifest = z.infer<typeof ClickhouseClusterManifest>;
 export type BackendsManifest = z.infer<typeof BackendsManifest>;

@@ -10,20 +10,28 @@ import {
   spawnMongo,
   spawnRedis,
   spawnRabbit,
+  spawnClickhouse,
   stopAllForEnv,
   imageExists,
   mongoUrlFor,
   redisUrlFor,
   rabbitUrlFor,
   rabbitManagementUrlFor,
+  clickhouseUrlFor,
 } from './containers.js';
 import {
   DEFAULT_MONGO_IMAGE,
   DEFAULT_REDIS_IMAGE,
   DEFAULT_RABBIT_IMAGE,
+  DEFAULT_CLICKHOUSE_IMAGE,
+  DEFAULT_CLICKHOUSE_DB,
+  DEFAULT_CLICKHOUSE_CLUSTER_NAME,
+  DEFAULT_CLICKHOUSE_SHARD,
+  DEFAULT_CLICKHOUSE_REPLICA,
   FALLBACK_MONGO_URL,
   FALLBACK_REDIS_URL,
   FALLBACK_RABBIT_URL,
+  FALLBACK_CLICKHOUSE_URL,
   type BackendsSpec,
 } from './backends.js';
 
@@ -34,7 +42,10 @@ function configHash(spec: BackendsSpec): string {
     mongoImage: spec.mongo?.image,
     redisImage: spec.redis?.image,
     rabbitImage: spec.rabbit?.image,
+    clickhouseImage: spec.clickhouse?.image,
     dbName: spec.mongo?.dbName,
+    clickhouseDbName: spec.clickhouse?.dbName,
+    clickhouseCluster: spec.clickhouse?.cluster,
   });
   return crypto.createHash('sha256').update(stable).digest('hex').slice(0, 16);
 }
@@ -56,6 +67,8 @@ export interface UpOptions {
   withoutRedis?: boolean;
   /** One-off override: skip Rabbit even if the manifest declares it. */
   withoutRabbit?: boolean;
+  /** One-off override: skip ClickHouse even if the manifest declares it. */
+  withoutClickhouse?: boolean;
   /** If true, set this new env as the active one. Default true. */
   setActive?: boolean;
   /** Project name to tag on the container labels (for sweeping per-project). */
@@ -85,6 +98,8 @@ export async function envUp(
     const mongoImage = spec.mongo?.image ?? DEFAULT_MONGO_IMAGE;
     const redisImage = spec.redis?.image ?? DEFAULT_REDIS_IMAGE;
     const rabbitImage = spec.rabbit?.image ?? DEFAULT_RABBIT_IMAGE;
+    const clickhouseImage = spec.clickhouse?.image ?? DEFAULT_CLICKHOUSE_IMAGE;
+    const clickhouseDbName = spec.clickhouse?.dbName ?? DEFAULT_CLICKHOUSE_DB;
 
     // Surface a pull on the env record so the UI can show "downloading
     // <image>" while testcontainers fetches it (first run on a fresh machine
@@ -131,6 +146,28 @@ export async function envUp(
       });
     }
     const rabbit = rabbitSpawn?.handle;
+    let clickhouse;
+    if (spec.clickhouse !== undefined && !opts.withoutClickhouse) {
+      await markPulling(clickhouseImage);
+      // Cluster mode is opt-in per project — passing `cluster: {}` in
+      // env.init turns it on with sensible defaults; absence keeps the
+      // lighter single-node-no-Keeper boot.
+      const clusterSpec = spec.clickhouse.cluster
+        ? {
+            name: spec.clickhouse.cluster.name ?? DEFAULT_CLICKHOUSE_CLUSTER_NAME,
+            shard: spec.clickhouse.cluster.shard ?? DEFAULT_CLICKHOUSE_SHARD,
+            replica: spec.clickhouse.cluster.replica ?? DEFAULT_CLICKHOUSE_REPLICA,
+          }
+        : undefined;
+      clickhouse = await spawnClickhouse({
+        envId,
+        image: clickhouseImage,
+        labels,
+        hostPort: spec.clickhouse.port,
+        dbName: clickhouseDbName,
+        cluster: clusterSpec,
+      });
+    }
 
     const ready: ManagedEnv = {
       ...initial,
@@ -138,6 +175,7 @@ export async function envUp(
       mongo,
       redis,
       rabbit,
+      clickhouse,
       resolved: {
         ...(dbName ? { dbName } : {}),
         mongoUrl: mongo ? mongoUrlFor(mongo, spec.mongo?.replicaSet) : undefined,
@@ -145,6 +183,11 @@ export async function envUp(
         rabbitUrl: rabbitSpawn ? rabbitUrlFor(rabbit!, rabbitSpawn.user, rabbitSpawn.password) : undefined,
         rabbitManagementUrl: rabbitSpawn?.managementHostPort
           ? rabbitManagementUrlFor(rabbitSpawn.managementHostPort)
+          : undefined,
+        clickhouseUrl: clickhouse ? clickhouseUrlFor(clickhouse) : undefined,
+        clickhouseDbName: clickhouse ? clickhouseDbName : undefined,
+        clickhouseCluster: clickhouse && spec.clickhouse?.cluster
+          ? spec.clickhouse.cluster.name ?? DEFAULT_CLICKHOUSE_CLUSTER_NAME
           : undefined,
       },
     };
@@ -207,12 +250,14 @@ export async function envStatus(envId: string, registry: EnvRegistry): Promise<{
   mongoReachable?: boolean;
   redisReachable?: boolean;
   rabbitReachable?: boolean;
+  clickhouseReachable?: boolean;
 }> {
   const env = await registry.get(envId);
   if (!env) throw new Error(`env not found: ${envId}`);
   let mongoReachable: boolean | undefined;
   let redisReachable: boolean | undefined;
   let rabbitReachable: boolean | undefined;
+  let clickhouseReachable: boolean | undefined;
   if (env.resolved.mongoUrl) {
     try {
       const c = await MongoClient.connect(env.resolved.mongoUrl, { serverSelectionTimeoutMS: 1500 });
@@ -242,7 +287,18 @@ export async function envStatus(envId: string, registry: EnvRegistry): Promise<{
   if (env.rabbit) {
     rabbitReachable = await tcpProbe('localhost', env.rabbit.hostPort, 1500);
   }
-  return { env, mongoReachable, redisReachable, rabbitReachable };
+  if (env.resolved.clickhouseUrl) {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 1500);
+      const res = await fetch(`${env.resolved.clickhouseUrl}/ping`, { signal: ctl.signal });
+      clearTimeout(t);
+      clickhouseReachable = res.ok;
+    } catch {
+      clickhouseReachable = false;
+    }
+  }
+  return { env, mongoReachable, redisReachable, rabbitReachable, clickhouseReachable };
 }
 
 export async function envReset(
@@ -282,6 +338,27 @@ export async function envReset(
       r.disconnect();
     }
   }
+  if (env.resolved.clickhouseUrl && env.resolved.clickhouseDbName) {
+    // Drop and recreate the project's primary database. Mirrors mongo's
+    // dropDatabase semantic: only the database easy-env knows about gets
+    // wiped — any other DBs the project may have created stay intact.
+    const dbName = env.resolved.clickhouseDbName;
+    const escaped = dbName.replace(/`/g, '``');
+    const drop = await fetch(`${env.resolved.clickhouseUrl}/`, {
+      method: 'POST',
+      body: `DROP DATABASE IF EXISTS \`${escaped}\``,
+    });
+    if (!drop.ok) {
+      throw new Error(`clickhouse DROP DATABASE ${dbName} failed: ${drop.status}`);
+    }
+    const create = await fetch(`${env.resolved.clickhouseUrl}/`, {
+      method: 'POST',
+      body: `CREATE DATABASE \`${escaped}\``,
+    });
+    if (!create.ok) {
+      throw new Error(`clickhouse CREATE DATABASE ${dbName} failed: ${create.status}`);
+    }
+  }
   return env;
 }
 
@@ -306,8 +383,23 @@ export async function resolveEnv(
 export async function resolveBackends(
   registry: EnvRegistry,
   envId?: string,
-  override?: { mongoUrl?: string; redisUrl?: string; rabbitUrl?: string; dbName?: string },
-): Promise<{ mongoUrl: string; redisUrl: string; rabbitUrl?: string; dbName?: string; envId?: string }> {
+  override?: {
+    mongoUrl?: string;
+    redisUrl?: string;
+    rabbitUrl?: string;
+    clickhouseUrl?: string;
+    clickhouseDbName?: string;
+    dbName?: string;
+  },
+): Promise<{
+  mongoUrl: string;
+  redisUrl: string;
+  rabbitUrl?: string;
+  clickhouseUrl: string;
+  clickhouseDbName?: string;
+  dbName?: string;
+  envId?: string;
+}> {
   // Per-field precedence: explicit override > active/selected env's resolved
   // URL > built-in compose fallback. Resolving per-field (rather than
   // all-or-nothing) matters now that envs are selective: a redis-only env
@@ -321,6 +413,8 @@ export async function resolveBackends(
     mongoUrl: override?.mongoUrl ?? env?.resolved.mongoUrl ?? FALLBACK_MONGO_URL,
     redisUrl: override?.redisUrl ?? env?.resolved.redisUrl ?? FALLBACK_REDIS_URL,
     rabbitUrl: override?.rabbitUrl ?? env?.resolved.rabbitUrl ?? FALLBACK_RABBIT_URL,
+    clickhouseUrl: override?.clickhouseUrl ?? env?.resolved.clickhouseUrl ?? FALLBACK_CLICKHOUSE_URL,
+    clickhouseDbName: override?.clickhouseDbName ?? env?.resolved.clickhouseDbName,
     dbName: override?.dbName ?? env?.resolved.dbName,
     envId: env?.envId,
   };

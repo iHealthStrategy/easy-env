@@ -117,7 +117,7 @@ async function main() {
     // ----- 2. env.up: spawn fresh isolated containers + auto-seed ----------
     console.log('  env.up: spawning fresh mongo + redis (Testcontainers)...');
     const up = await runEnvUp(
-      { projectName: PROJECT_NAME, projectRoot: PROJECT_ROOT, setActive: true, withoutMongo: false, withoutRedis: false, withoutRabbit: false, seed: 'auto' },
+      { projectName: PROJECT_NAME, projectRoot: PROJECT_ROOT, setActive: true, withoutMongo: false, withoutRedis: false, withoutRabbit: false, withoutClickhouse: false, seed: 'auto' },
       ctx,
     );
     envId = up.envId;

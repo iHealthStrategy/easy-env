@@ -18,12 +18,21 @@ export const ManagedEnv = z.object({
   mongo: ContainerHandle.optional(),
   redis: ContainerHandle.optional(),
   rabbit: ContainerHandle.optional(),
+  clickhouse: ContainerHandle.optional(),
   resolved: z.object({
     mongoUrl: z.string().optional(),
     redisUrl: z.string().optional(),
     rabbitUrl: z.string().optional(),
     // Optional management UI URL (RabbitMQ *-management image only).
     rabbitManagementUrl: z.string().optional(),
+    // ClickHouse HTTP URL (e.g. http://localhost:8124). Always the HTTP
+    // interface — native protocol (9000) is not exposed.
+    clickhouseUrl: z.string().optional(),
+    // ClickHouse primary database name (mirrors what env.init recorded).
+    clickhouseDbName: z.string().optional(),
+    // Synthetic cluster name when cluster mode is on; absent in single-node
+    // mode. Useful for templating `ON CLUSTER ${clickhouse.cluster}` in vars.
+    clickhouseCluster: z.string().optional(),
     // Optional — only set when the project explicitly declares
     // backends.mongo.dbName in its easy-env.json. easy-env no longer
     // injects a fallback dbName; if the project wants /<dbname> in

@@ -1,4 +1,4 @@
-import type { SnapshotArtifact } from '../schemas/capture.js';
+import type { ClickhouseTableSnapshot, SnapshotArtifact } from '../schemas/capture.js';
 import type { DiffArtifact, NoisePolicy } from '../schemas/diff.js';
 import { newId } from './ids.js';
 
@@ -80,6 +80,42 @@ function redisDiff(
   return { added, removed, modified };
 }
 
+function clickhouseTableDiff(
+  before: ClickhouseTableSnapshot | undefined,
+  after: ClickhouseTableSnapshot | undefined,
+  policy: NoisePolicy,
+) {
+  const beforeRows = before?.rows ?? [];
+  const afterRows = after?.rows ?? [];
+  // Prefer after's orderBy (we're diffing toward the new state); if absent,
+  // fall back to before's. When neither side declares a key, identity is
+  // the full row JSON.
+  const orderBy = after?.orderBy ?? before?.orderBy ?? null;
+  if (!orderBy) {
+    // Full-row equality. No "modified" possible — a changed row looks like
+    // one removed + one added.
+    const seenAfter = new Set(afterRows.map((r) => JSON.stringify(r)));
+    const seenBefore = new Set(beforeRows.map((r) => JSON.stringify(r)));
+    const added = afterRows.filter((r) => !seenBefore.has(JSON.stringify(r)));
+    const removed = beforeRows.filter((r) => !seenAfter.has(JSON.stringify(r)));
+    return { added, removed, modified: [] as Array<{ key: unknown; changes: Record<string, { from: unknown; to: unknown }> }> };
+  }
+  const beforeByKey = new Map(beforeRows.map((r) => [JSON.stringify(r[orderBy]), r]));
+  const afterByKey = new Map(afterRows.map((r) => [JSON.stringify(r[orderBy]), r]));
+  const added: Array<Record<string, unknown>> = [];
+  const removed: Array<Record<string, unknown>> = [];
+  const modified: Array<{ key: unknown; changes: Record<string, { from: unknown; to: unknown }> }> = [];
+  for (const [k, row] of afterByKey) {
+    if (!beforeByKey.has(k)) added.push(row);
+    else {
+      const changes = fieldDiff(beforeByKey.get(k)!, row, policy);
+      if (Object.keys(changes).length > 0) modified.push({ key: row[orderBy], changes });
+    }
+  }
+  for (const [k, row] of beforeByKey) if (!afterByKey.has(k)) removed.push(row);
+  return { added, removed, modified };
+}
+
 export function diffSnapshots(
   before: SnapshotArtifact,
   after: SnapshotArtifact,
@@ -94,6 +130,14 @@ export function diffSnapshots(
     mongo[name] = collectionDiff(before.mongo[name], after.mongo[name], noisePolicy);
   }
   const redis = redisDiff(before.redis ?? {}, after.redis ?? {}, noisePolicy);
+  const clickhouseNames = new Set([
+    ...Object.keys(before.clickhouse || {}),
+    ...Object.keys(after.clickhouse || {}),
+  ]);
+  const clickhouse: Record<string, ReturnType<typeof clickhouseTableDiff>> = {};
+  for (const name of clickhouseNames) {
+    clickhouse[name] = clickhouseTableDiff(before.clickhouse?.[name], after.clickhouse?.[name], noisePolicy);
+  }
   return {
     diffId: newId('diff'),
     beforeSnapshotId: before.snapshotId,
@@ -107,5 +151,6 @@ export function diffSnapshots(
     noisePolicy,
     mongo,
     redis,
+    clickhouse,
   };
 }

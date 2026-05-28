@@ -16,6 +16,9 @@ export interface ResolvedUrls {
   redisUrl?: string;
   rabbitUrl?: string;
   rabbitManagementUrl?: string;
+  clickhouseUrl?: string;
+  clickhouseDbName?: string;
+  clickhouseCluster?: string;
   dbName?: string;
   baseUrl?: string;
 }
@@ -34,6 +37,7 @@ export interface EnvListItem {
     mongo: string | null;
     redis: string | null;
     rabbit: string | null;
+    clickhouse: string | null;
   };
 }
 
@@ -54,11 +58,13 @@ export interface EnvDetailResponse {
     mongoReachable: boolean;
     redisReachable: boolean;
     rabbitReachable?: boolean;
+    clickhouseReachable?: boolean;
   };
   containers: {
     mongo: ContainerHandle | null;
     redis: ContainerHandle | null;
     rabbit: ContainerHandle | null;
+    clickhouse: ContainerHandle | null;
   };
   labels: Record<string, string>;
   error?: string;
@@ -90,6 +96,7 @@ export type SnapshotDetailResponse = {
   projectName?: string;
   mongo: Record<string, unknown[]>;
   redis: Record<string, unknown>;
+  clickhouse?: Record<string, { orderBy: string | null; rows: unknown[] }>;
 };
 
 export type DiffDetailResponse = {
@@ -106,6 +113,7 @@ export type DiffDetailResponse = {
     removed: Record<string, unknown>;
     modified: Record<string, unknown>;
   };
+  clickhouse?: Record<string, { added: unknown[]; removed: unknown[]; modified: unknown[] }>;
 };
 
 export interface HealthResponse {
@@ -157,6 +165,12 @@ export interface ProjectSummary {
       user?: string;
       password?: string;
     };
+    clickhouse?: {
+      image?: string;
+      port?: number;
+      dbName?: string;
+      cluster?: { name?: string; shard?: string; replica?: string };
+    };
   };
   variableCount: number;
 }
@@ -184,10 +198,14 @@ export interface ContainersHandle {
   redisUrl?: string;
   rabbitUrl?: string;
   rabbitManagementUrl?: string;
+  clickhouseUrl?: string;
+  clickhouseDbName?: string;
+  clickhouseCluster?: string;
   dbName?: string;
   mongoHostPort?: number;
   redisHostPort?: number;
   rabbitHostPort?: number;
+  clickhouseHostPort?: number;
 }
 
 export interface VarsListResponse {

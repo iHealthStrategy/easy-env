@@ -17,8 +17,9 @@ import { spawn } from 'node:child_process';
 import { GenericContainer, type StartedTestContainer } from 'testcontainers';
 import type { ContainerHandle } from '../schemas/env.js';
 import { DEFAULT_RABBIT_USER, DEFAULT_RABBIT_PASSWORD } from './backends.js';
+import { buildClusterConfigXml, type ClickhouseClusterConfig } from './clickhouse.js';
 
-export type BackendKind = 'mongo' | 'redis' | 'rabbit';
+export type BackendKind = 'mongo' | 'redis' | 'rabbit' | 'clickhouse';
 
 // Shell-out to `docker` CLI for cleanup operations. Cheap, no extra deps,
 // and matches what users would type by hand.
@@ -83,6 +84,7 @@ const MONGO_PORT = 27017;
 const REDIS_PORT = 6379;
 const RABBIT_AMQP_PORT = 5672;
 const RABBIT_MGMT_PORT = 15672;
+const CLICKHOUSE_HTTP_PORT = 8123;
 
 const MONGO_TMPFS = {
   '/data/db': 'rw,size=512m',
@@ -95,6 +97,13 @@ const REDIS_TMPFS = {
 // about persistence. tmpfs is plenty for PoC-scale queues.
 const RABBIT_TMPFS = {
   '/var/lib/rabbitmq': 'rw,size=256m',
+};
+// ClickHouse stores parts under /var/lib/clickhouse and writes logs to
+// /var/log/clickhouse-server. The MergeTree write path is busier than
+// mongo's so we give it a bit more headroom.
+const CLICKHOUSE_TMPFS = {
+  '/var/lib/clickhouse': 'rw,size=1g',
+  '/var/log/clickhouse-server': 'rw,size=128m',
 };
 
 // In-process index from envId+backend to the live StartedTestContainer
@@ -352,6 +361,101 @@ export async function spawnRabbit(opts: {
   });
 }
 
+export async function spawnClickhouse(opts: {
+  envId: string;
+  image: string;
+  labels: Record<string, string>;
+  hostPort?: number;
+  /** Primary database name. easy-env runs `CREATE DATABASE IF NOT EXISTS`
+   *  against it once the server is up so the first query doesn't 404. */
+  dbName?: string;
+  /** When set, mount a single-node-cluster config (embedded Keeper +
+   *  synthetic <remote_servers> + macros) into /etc/clickhouse-server/config.d.
+   *  Unlocks ReplicatedMergeTree / Distributed / ON CLUSTER / cluster() in
+   *  the project's DDL and queries. SELECT … FINAL works either way. */
+  cluster?: ClickhouseClusterConfig;
+}): Promise<ContainerHandle> {
+  return spawnWithPortFallback(opts.envId, 'clickhouse', opts.hostPort, async (port) => {
+    const portBinding = port
+      ? { container: CLICKHOUSE_HTTP_PORT, host: port }
+      : CLICKHOUSE_HTTP_PORT;
+    let builder = new GenericContainer(opts.image)
+      .withLabels(opts.labels)
+      .withExposedPorts(portBinding)
+      .withTmpFs(CLICKHOUSE_TMPFS)
+      // ClickHouse cold-boot is ~15-25s standalone; embedded Keeper + raft
+      // election adds another ~10-15s. Same headroom as rabbit.
+      .withStartupTimeout(opts.cluster ? 120_000 : 90_000);
+    if (opts.cluster) {
+      builder = builder.withCopyContentToContainer([
+        {
+          content: buildClusterConfigXml(opts.cluster),
+          // config.d is merged on top of /etc/clickhouse-server/config.xml
+          // at startup — the snippet doesn't need to duplicate base settings.
+          target: '/etc/clickhouse-server/config.d/easy-env-cluster.xml',
+          mode: 0o644,
+        },
+      ]);
+    }
+    const container = await builder.start();
+    const handle: ContainerHandle = {
+      containerId: container.getId(),
+      image: opts.image,
+      internalPort: CLICKHOUSE_HTTP_PORT,
+      hostPort: container.getMappedPort(CLICKHOUSE_HTTP_PORT),
+    };
+    liveContainers.set(key(opts.envId, 'clickhouse'), container);
+    // The container reports READY (testcontainers waits for an HTTP 200 on
+    // any mapped port by default) but ClickHouse needs an extra beat
+    // before /ping returns "Ok.". Poll briefly so callers see a usable
+    // server when env.up resolves. Cluster mode adds Keeper boot + ZK
+    // session establishment, so give it a longer fuse.
+    await waitForClickhouseReady(handle.hostPort, opts.cluster ? 60_000 : 30_000);
+    if (opts.dbName && opts.dbName !== 'default') {
+      await createClickhouseDatabase(handle.hostPort, opts.dbName);
+    }
+    return handle;
+  });
+}
+
+/** Poll http://localhost:<port>/ping until it responds 200 with "Ok.\n" or
+ *  the deadline elapses. Cheaper and more accurate than a TCP probe — the
+ *  port can be open well before the HTTP listener accepts queries. */
+async function waitForClickhouseReady(hostPort: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://localhost:${hostPort}/ping`);
+      if (res.ok) return;
+      lastError = new Error(`/ping ${res.status}`);
+    } catch (e) {
+      lastError = e;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error(
+    `clickhouse never answered /ping within ${timeoutMs}ms: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
+}
+
+async function createClickhouseDatabase(hostPort: number, dbName: string): Promise<void> {
+  // The HTTP interface accepts the query in the body. We use IF NOT EXISTS
+  // so env.up is idempotent and a manifest change (e.g. dbName: "analytics")
+  // doesn't require destroying the container.
+  const url = `http://localhost:${hostPort}/`;
+  const res = await fetch(url, {
+    method: 'POST',
+    body: `CREATE DATABASE IF NOT EXISTS \`${dbName.replace(/`/g, '``')}\``,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`clickhouse CREATE DATABASE ${dbName} failed: ${res.status} ${text.slice(0, 200)}`);
+  }
+}
+
 export async function stopContainer(envId: string, backend: BackendKind): Promise<void> {
   const c = liveContainers.get(key(envId, backend));
   if (!c) return;
@@ -364,6 +468,7 @@ export async function stopAllForEnv(envId: string): Promise<void> {
     stopContainer(envId, 'mongo'),
     stopContainer(envId, 'redis'),
     stopContainer(envId, 'rabbit'),
+    stopContainer(envId, 'clickhouse'),
   ]);
   // Fallback: if liveContainers had no reference (e.g. daemon restart since
   // env.up), the in-process stop() above did nothing. Sweep docker by label
@@ -389,4 +494,7 @@ export function rabbitUrlFor(handle: ContainerHandle, user: string, password: st
 }
 export function rabbitManagementUrlFor(hostPort: number): string {
   return `http://localhost:${hostPort}`;
+}
+export function clickhouseUrlFor(handle: ContainerHandle): string {
+  return `http://localhost:${handle.hostPort}`;
 }

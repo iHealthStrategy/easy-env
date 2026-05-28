@@ -23,6 +23,13 @@
 //   ${rabbit.url}    →  amqp://<user>:<pass>@<host>:<port>
 //   ${rabbit.host}   →  host portion of the active rabbit container
 //   ${rabbit.port}   →  host port portion of the active rabbit container
+//   ${clickhouse.url}    →  http://<host>:<port>  (HTTP interface only)
+//   ${clickhouse.host}   →  host portion of the active clickhouse container
+//   ${clickhouse.port}   →  host port portion of the active clickhouse container
+//   ${clickhouse.dbName} →  manifest.backends.clickhouse.dbName (default "default")
+//   ${clickhouse.cluster} →  cluster name when cluster mode is on (else empty
+//                            so `ON CLUSTER ${clickhouse.cluster}` becomes
+//                            `ON CLUSTER ` — easy spot for templating bugs)
 //
 // Why templates? The project may need many derived URLs that share a
 // host:port but differ in db name (e.g. blog-backend has MONGO_URL,
@@ -50,10 +57,14 @@ export interface ContainersView {
   redisUrl?: string;
   rabbitUrl?: string;
   rabbitManagementUrl?: string;
+  clickhouseUrl?: string;
+  clickhouseDbName?: string;
+  clickhouseCluster?: string;
   dbName?: string;
   mongoHostPort?: number;
   redisHostPort?: number;
   rabbitHostPort?: number;
+  clickhouseHostPort?: number;
 }
 
 export interface ResolveVarsResult {
@@ -78,12 +89,19 @@ interface ServiceVars {
    *  Only populated for mongo today; empty string for non-replica-set
    *  mongo so templates that reference ${mongo.params} stay valid. */
   params?: string;
+  /** Synthetic cluster name (clickhouse only). */
+  cluster?: string;
 }
 
 function parseHostPort(url: string | undefined): { host?: string; port?: string } {
   if (!url) return {};
   try {
-    const u = new URL(url.replace(/^mongodb(\+srv)?:/, 'http$1:').replace(/^redis:/, 'http:'));
+    const u = new URL(
+      url
+        .replace(/^mongodb(\+srv)?:/, 'http$1:')
+        .replace(/^redis:/, 'http:')
+        .replace(/^amqp:/, 'http:'),
+    );
     return { host: u.hostname || undefined, port: u.port || undefined };
   } catch {
     return {};
@@ -103,8 +121,8 @@ function splitUrlParams(url: string | undefined): { base?: string; params?: stri
   return { base: rawBase.replace(/\/+$/, ''), params };
 }
 
-function buildServiceVars(env: ManagedEnv | null): { mongo: ServiceVars; redis: ServiceVars; rabbit: ServiceVars } {
-  if (!env || env.status !== 'ready') return { mongo: {}, redis: {}, rabbit: {} };
+function buildServiceVars(env: ManagedEnv | null): { mongo: ServiceVars; redis: ServiceVars; rabbit: ServiceVars; clickhouse: ServiceVars } {
+  if (!env || env.status !== 'ready') return { mongo: {}, redis: {}, rabbit: {}, clickhouse: {} };
   // Mongo URL may carry a `?replicaSet=…&directConnection=true` suffix when
   // running as a replica set. Templates want the base for `${mongo.url}/db`
   // concatenation and a separate `${mongo.params}` slot for the query.
@@ -112,6 +130,7 @@ function buildServiceVars(env: ManagedEnv | null): { mongo: ServiceVars; redis: 
   const m = parseHostPort(env.resolved.mongoUrl);
   const r = parseHostPort(env.resolved.redisUrl);
   const q = parseHostPort(env.resolved.rabbitUrl);
+  const c = parseHostPort(env.resolved.clickhouseUrl);
   return {
     mongo: {
       url: mSplit.base,
@@ -130,19 +149,26 @@ function buildServiceVars(env: ManagedEnv | null): { mongo: ServiceVars; redis: 
       host: q.host,
       port: q.port,
     },
+    clickhouse: {
+      url: env.resolved.clickhouseUrl,
+      host: c.host,
+      port: c.port,
+      dbName: env.resolved.clickhouseDbName,
+      cluster: env.resolved.clickhouseCluster,
+    },
   };
 }
 
-// Recognized placeholders: ${service.field} where service ∈ {mongo, redis, rabbit}
+// Recognized placeholders: ${service.field} where service ∈ {mongo, redis, rabbit, clickhouse}
 // and field is a known property of the corresponding ServiceVars. Unknown
 // placeholders are left as-is (caller can spot the leftover ${...} and fix
 // their template or wait for env.up).
-const PLACEHOLDER = /\$\{(mongo|redis|rabbit)\.([a-zA-Z]+)\}/g;
+const PLACEHOLDER = /\$\{(mongo|redis|rabbit|clickhouse)\.([a-zA-Z]+)\}/g;
 
 export function interpolate(value: VarValue, env: ManagedEnv | null): VarValue {
   if (typeof value !== 'string' || !value.includes('${')) return value;
   const services = buildServiceVars(env);
-  return value.replace(PLACEHOLDER, (match, svc: 'mongo' | 'redis' | 'rabbit', field: string) => {
+  return value.replace(PLACEHOLDER, (match, svc: 'mongo' | 'redis' | 'rabbit' | 'clickhouse', field: string) => {
     const bag = services[svc] as Record<string, string | undefined>;
     const replacement = bag[field];
     return replacement === undefined ? match : replacement;
@@ -190,10 +216,14 @@ export async function resolveVars(input: ResolveVarsInput): Promise<ResolveVarsR
       redisUrl: env.resolved.redisUrl,
       rabbitUrl: env.resolved.rabbitUrl,
       rabbitManagementUrl: env.resolved.rabbitManagementUrl,
+      clickhouseUrl: env.resolved.clickhouseUrl,
+      clickhouseDbName: env.resolved.clickhouseDbName,
+      clickhouseCluster: env.resolved.clickhouseCluster,
       dbName: env.resolved.dbName,
       mongoHostPort: env.mongo?.hostPort,
       redisHostPort: env.redis?.hostPort,
       rabbitHostPort: env.rabbit?.hostPort,
+      clickhouseHostPort: env.clickhouse?.hostPort,
     };
   }
 

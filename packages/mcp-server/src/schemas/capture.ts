@@ -8,12 +8,29 @@ export const RedisCaptureSpec = z.object({
   keyPatterns: z.array(z.string().min(1)).min(1),
 });
 
+// ClickHouse tables to snapshot. Each entry names a table (optionally in a
+// non-default database) and the column used to key rows for diffing. When
+// `orderBy` is omitted, diff falls back to full-row JSON equality and
+// reports only added/removed (no modified) — fine for append-only logs.
+export const ClickhouseTableSpec = z.object({
+  name: z.string().min(1),
+  /** Defaults to the env's clickhouseDbName (usually "default"). */
+  database: z.string().min(1).optional(),
+  /** Column used as a row key for diff matching (e.g. "id"). Optional. */
+  orderBy: z.string().min(1).optional(),
+});
+
+export const ClickhouseCaptureSpec = z.object({
+  tables: z.array(ClickhouseTableSpec).min(1),
+});
+
 export const CaptureSpec = z.object({
   mongo: MongoCaptureSpec.optional(),
   redis: RedisCaptureSpec.optional(),
+  clickhouse: ClickhouseCaptureSpec.optional(),
 }).refine(
-  (s) => s.mongo !== undefined || s.redis !== undefined,
-  'CaptureSpec must include at least one of mongo or redis',
+  (s) => s.mongo !== undefined || s.redis !== undefined || s.clickhouse !== undefined,
+  'CaptureSpec must include at least one of mongo, redis or clickhouse',
 );
 
 export const BackendUrls = z.object({
@@ -21,8 +38,10 @@ export const BackendUrls = z.object({
   dbName: z.string().min(1).optional(),
   redisUrl: z.string().url().optional(),
   // Surfaced so future capture/replay primitives can reach Rabbit; the
-  // current capture/diff tools only read mongo + redis.
+  // current capture/diff tools only read mongo + redis + clickhouse.
   rabbitUrl: z.string().url().optional(),
+  clickhouseUrl: z.string().url().optional(),
+  clickhouseDbName: z.string().min(1).optional(),
 });
 
 export const MongoDoc = z.record(z.string(), z.unknown());
@@ -30,6 +49,15 @@ export const RedisValue = z.object({
   type: z.string(),
   value: z.unknown(),
   ttl: z.number(),
+});
+
+export const ClickhouseTableSnapshot = z.object({
+  /** Column used to key rows for diff matching; null when not supplied
+   *  (diff falls back to full-row equality). */
+  orderBy: z.string().nullable(),
+  /** Rows as JSONEachRow returned them, sorted by orderBy when present so
+   *  snapshots are stable across captures. */
+  rows: z.array(z.record(z.string(), z.unknown())),
 });
 
 export const SnapshotArtifact = z.object({
@@ -41,8 +69,14 @@ export const SnapshotArtifact = z.object({
   projectName: z.string().optional(),
   mongo: z.record(z.string(), z.array(MongoDoc)).default({}),
   redis: z.record(z.string(), RedisValue).default({}),
+  // Keyed by "<database>.<table>" so the same table name in different DBs
+  // doesn't collide. Default {} keeps old snapshots parseable.
+  clickhouse: z.record(z.string(), ClickhouseTableSnapshot).default({}),
 });
 
 export type CaptureSpec = z.infer<typeof CaptureSpec>;
+export type ClickhouseCaptureSpec = z.infer<typeof ClickhouseCaptureSpec>;
+export type ClickhouseTableSpec = z.infer<typeof ClickhouseTableSpec>;
+export type ClickhouseTableSnapshot = z.infer<typeof ClickhouseTableSnapshot>;
 export type BackendUrls = z.infer<typeof BackendUrls>;
 export type SnapshotArtifact = z.infer<typeof SnapshotArtifact>;

@@ -58,6 +58,7 @@ export async function applyManifestSeed(opts: {
       mongo: applied.mongo,
       redis: applied.redis,
       rabbit: applied.rabbit,
+      clickhouse: applied.clickhouse,
       durationMs: Date.now() - t0,
     });
   }
@@ -123,6 +124,6 @@ function filterIndices(total: number, only: number[] | undefined): number[] {
 export const stateSeedToolDescription = {
   name: 'state.seed',
   description:
-    "Apply this project's pre-declared seed files against the active env. Pass { projectName, projectRoot, reset?, only? }. The daemon reads the paths recorded in the manifest (via env.init's `seed` field) — the AI does NOT need to read the seed file contents itself. JSON files run first (declarative: mongo collections / redis keys / rabbit topology), then scripts (imperative .js/.mjs run with `node`, cwd=projectRoot, process.env populated from vars.list + EASY_ENV_* URL hints). reset:true runs env.reset (fast: dropDatabase + flushdb) before seeding. only restricts which files to apply (indices into the manifest's seed arrays). Mongo collection write modes: replace (default, drop+insertMany), upsert (replaceOne by _id), insert (errors on duplicate). Rabbit topology calls the *-management HTTP API to declare exchanges/queues/bindings idempotently.",
+    "Apply this project's pre-declared seed files against the active env. Pass { projectName, projectRoot, reset?, only? }. The daemon reads the paths recorded in the manifest (via env.init's `seed` field) — the AI does NOT need to read the seed file contents itself. JSON files run first (declarative: mongo collections / redis keys / rabbit topology / clickhouse tables), then scripts (imperative .js/.mjs run with `node`, cwd=projectRoot, process.env populated from vars.list + EASY_ENV_* URL hints including EASY_ENV_CLICKHOUSE_URL / EASY_ENV_CLICKHOUSE_DB). reset:true runs env.reset (fast: dropDatabase + flushdb + clickhouse DROP/CREATE) before seeding. only restricts which files to apply (indices into the manifest's seed arrays). Mongo collection write modes: replace (default, drop+insertMany), upsert (replaceOne by _id), insert (errors on duplicate). Rabbit topology calls the *-management HTTP API to declare exchanges/queues/bindings idempotently. ClickHouse table modes: replace (TRUNCATE + INSERT FORMAT JSONEachRow), insert (append). Tables must exist — use a seed script to CREATE TABLE before the JSON seed runs.",
   inputSchema: StateSeedInput,
 };

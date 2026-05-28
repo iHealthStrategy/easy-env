@@ -46,10 +46,27 @@ export const RabbitBackendConfig = z.object({
   password: z.string().min(1).optional(),
 });
 
+export const ClickhouseBackendConfig = z.object({
+  image: z.string().min(1).optional(),
+  url: z.string().url().optional(),
+  // Host port mapped to container HTTP port 8123.
+  port: z.number().int().min(1).max(65535).optional(),
+  // Primary database name. Auto-created on env.up; defaults to "default".
+  dbName: z.string().min(1).optional(),
+  // Enable embedded Keeper + synthetic single-node cluster (so Distributed
+  // / ON CLUSTER / ReplicatedMergeTree work against one container).
+  cluster: z.object({
+    name: z.string().min(1).regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
+    shard: z.string().min(1).optional(),
+    replica: z.string().min(1).optional(),
+  }).optional(),
+});
+
 export const BackendsConfig = z.object({
   mongo: MongoBackendConfig.optional(),
   redis: RedisBackendConfig.optional(),
   rabbit: RabbitBackendConfig.optional(),
+  clickhouse: ClickhouseBackendConfig.optional(),
 });
 
 export const AppConfig = z.object({
@@ -98,3 +115,4 @@ export type EasyEnvConfig = z.infer<typeof EasyEnvConfig>;
 export type MongoBackendConfig = z.infer<typeof MongoBackendConfig>;
 export type RedisBackendConfig = z.infer<typeof RedisBackendConfig>;
 export type RabbitBackendConfig = z.infer<typeof RabbitBackendConfig>;
+export type ClickhouseBackendConfig = z.infer<typeof ClickhouseBackendConfig>;

@@ -52,13 +52,29 @@ async function main() {
           projectRoot,
           mongo: { image: 'mongo:6', port: 31000, dbName: 'app_db', replicaSet: 'rs0' },
           rabbit: { user: 'guest', password: 'guest' },
+          clickhouse: {
+            image: 'clickhouse/clickhouse-server:24.3',
+            port: 18123,
+            dbName: 'analytics',
+            cluster: { name: 'analytics_cluster', shard: '01', replica: 'r1' },
+          },
           seed: { json: ['seeds/base.json'], scripts: ['seeds/derive.mjs'] },
         },
         ctx,
       );
       assert(init.backends.mongo?.dbName === 'app_db', 'env.init response keeps dbName');
       assert(init.backends.mongo?.replicaSet === 'rs0', 'env.init response keeps replicaSet');
-      console.log('  ✓ env.init returns dbName in response');
+      const ch = init.backends.clickhouse as {
+        image?: string;
+        port?: number;
+        dbName?: string;
+        cluster?: { name?: string; shard?: string; replica?: string };
+      } | undefined;
+      assert(ch?.dbName === 'analytics', 'env.init response keeps clickhouse.dbName');
+      assert(ch?.port === 18123, 'env.init response keeps clickhouse.port');
+      assert(ch?.cluster?.name === 'analytics_cluster', 'env.init response keeps clickhouse.cluster.name');
+      assert(ch?.cluster?.shard === '01' && ch?.cluster?.replica === 'r1', 'cluster shard + replica persisted');
+      console.log('  ✓ env.init returns dbName + clickhouse + cluster in response');
 
       // 2. The manifest on disk has dbName --------------------------------
       // Slug-keyed layout: ~/.easy-env/projects/<name>__<rootHash>/.
@@ -71,16 +87,20 @@ async function main() {
       const raw = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
       assert(raw.backends?.mongo?.dbName === 'app_db', `dbName missing on disk; got: ${JSON.stringify(raw.backends?.mongo)}`);
       assert(raw.backends?.mongo?.replicaSet === 'rs0', 'replicaSet missing on disk');
+      assert(raw.backends?.clickhouse?.dbName === 'analytics', `clickhouse.dbName missing on disk; got: ${JSON.stringify(raw.backends?.clickhouse)}`);
+      assert(raw.backends?.clickhouse?.cluster?.name === 'analytics_cluster', 'cluster name persisted to disk');
       assert(Array.isArray(raw.seed?.json) && raw.seed.json[0] === 'seeds/base.json', 'seed.json persisted');
-      console.log('  ✓ dbName + replicaSet + seed persisted to manifest.json');
+      console.log('  ✓ dbName + replicaSet + clickhouse + seed persisted to manifest.json');
 
       // 3. loadOrInit reads dbName back -----------------------------------
       const store = new ProjectManifestStore();
       const loaded = await store.loadOrInit(projectName, projectRoot);
       assert(loaded.backends.mongo?.dbName === 'app_db', 'loadOrInit returns dbName');
       assert(loaded.backends.mongo?.replicaSet === 'rs0', 'loadOrInit returns replicaSet');
+      assert(loaded.backends.clickhouse?.dbName === 'analytics', 'loadOrInit returns clickhouse.dbName');
+      assert(loaded.backends.clickhouse?.cluster?.name === 'analytics_cluster', 'loadOrInit returns clickhouse.cluster');
       assert(loaded.seed.json.length === 1 && loaded.seed.scripts.length === 1, 'loadOrInit returns seed paths');
-      console.log('  ✓ loadOrInit round-trips dbName + seed');
+      console.log('  ✓ loadOrInit round-trips dbName + clickhouse + seed');
 
       // 4. Partial update preserves dbName --------------------------------
       const update = await runEnvInit(
@@ -113,7 +133,37 @@ async function main() {
       assert(redisOnly.backends.redis !== undefined, 'redis declared via empty {}');
       assert(redisOnly.backends.mongo === undefined, 'mongo NOT declared when omitted');
       assert(redisOnly.backends.rabbit === undefined, 'rabbit NOT declared when omitted');
+      assert(redisOnly.backends.clickhouse === undefined, 'clickhouse NOT declared when omitted');
       console.log('  ✓ empty {} enables a service; omitted services stay undeclared');
+
+      // Enable clickhouse via empty {} → declared with defaults, then
+      // disable via the disable array → removed cleanly.
+      const enableCh = await runEnvInit(
+        { projectName: 'sel-fixture', projectRoot, clickhouse: {} },
+        ctx,
+      );
+      assert(enableCh.backends.clickhouse !== undefined, 'clickhouse declared via empty {}');
+      const disableCh = await runEnvInit(
+        { projectName: 'sel-fixture', projectRoot, disable: ['clickhouse'] },
+        ctx,
+      );
+      assert(disableCh.backends.clickhouse === undefined, 'clickhouse removed via disable');
+      console.log('  ✓ clickhouse opt-in + disable round-trip');
+
+      // Cluster name must be an XML identifier — anything else (dashes,
+      // angle brackets, spaces) is rejected so the config snippet can't
+      // produce invalid XML.
+      let rejected = false;
+      try {
+        await runEnvInit(
+          { projectName: 'sel-fixture', projectRoot, clickhouse: { cluster: { name: 'bad-name<x>' } } },
+          ctx,
+        );
+      } catch {
+        rejected = true;
+      }
+      assert(rejected, 'invalid cluster name (XML-unsafe) must be rejected by env.init');
+      console.log('  ✓ invalid cluster name (XML-unsafe) rejected by env.init');
 
       // Omitting redis on a later call preserves it; adding mongo declares it.
       const addMongo = await runEnvInit(

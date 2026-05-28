@@ -63,6 +63,22 @@ const RabbitTopology = z.object({
   bindings: z.array(RabbitBinding).default([]),
 });
 
+// ── ClickHouse table seed ─────────────────────────────────────────────────
+// Tables must already exist (we don't run DDL — schemas are too engine-specific).
+// Use a seed script to CREATE TABLE if you need that. JSON seeds only insert rows.
+const ClickhouseTableShorthand = z.array(z.record(z.string(), z.unknown()));
+const ClickhouseTableLong = z.object({
+  /** replace = TRUNCATE then INSERT (default — most "init"-ish).
+   *  insert  = append rows; errors are surfaced.
+   *  ClickHouse has no upsert semantics for vanilla MergeTree, so we don't
+   *  expose one — use ReplacingMergeTree + insert if you need that. */
+  mode: z.enum(['replace', 'insert']).default('replace'),
+  /** Override the database (defaults to env's clickhouseDbName). */
+  database: z.string().min(1).optional(),
+  rows: z.array(z.record(z.string(), z.unknown())),
+});
+const ClickhouseTable = z.union([ClickhouseTableShorthand, ClickhouseTableLong]);
+
 export const JsonSeedSpec = z.object({
   // { dbName: { collectionName: [docs] | { mode, docs } } }
   mongo: z.record(z.string(), z.record(z.string(), MongoCollection)).optional(),
@@ -71,6 +87,8 @@ export const JsonSeedSpec = z.object({
   // exchanges / queues / bindings — all declared idempotently against the
   // RabbitMQ Management HTTP API (default vhost '/').
   rabbit: RabbitTopology.optional(),
+  // { tableName: [rows] | { mode, database?, rows } }
+  clickhouse: z.record(z.string(), ClickhouseTable).optional(),
 });
 export type JsonSeedSpec = z.infer<typeof JsonSeedSpec>;
 export type RabbitTopology = z.infer<typeof RabbitTopology>;
@@ -110,6 +128,12 @@ export const SeedJsonResult = z.object({
     queues: z.number(),
     bindings: z.number(),
   }).optional(),
+  clickhouse: z.array(z.object({
+    database: z.string(),
+    table: z.string(),
+    mode: z.string(),
+    inserted: z.number(),
+  })).default([]),
   durationMs: z.number(),
 });
 

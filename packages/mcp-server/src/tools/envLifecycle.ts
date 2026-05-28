@@ -24,6 +24,8 @@ export const EnvUpInput = z.object({
   // Rabbit is opt-in via the manifest; this flag lets callers skip it
   // explicitly (rare). Default false (= follow the manifest).
   withoutRabbit: z.boolean().default(false),
+  // Same opt-out story for ClickHouse.
+  withoutClickhouse: z.boolean().default(false),
   /** Auto-apply manifest.seed (json + scripts) once the env is ready.
    *  'auto'  (default) — runs seed if the manifest has any seed paths declared
    *  'skip'            — skip; caller can run state.seed manually later. */
@@ -36,6 +38,7 @@ async function loadBackendsSpec(ctx: ToolContext, projectName: string, projectRo
     mongo: manifest.backends.mongo,
     redis: manifest.backends.redis,
     rabbit: manifest.backends.rabbit,
+    clickhouse: manifest.backends.clickhouse,
   };
 }
 
@@ -46,12 +49,14 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
     mongo: manifest.backends.mongo,
     redis: manifest.backends.redis,
     rabbit: manifest.backends.rabbit,
+    clickhouse: manifest.backends.clickhouse,
   };
   const env = await envUp(spec, ctx.registry, {
     setActive: input.setActive,
     withoutMongo: input.withoutMongo,
     withoutRedis: input.withoutRedis,
     withoutRabbit: input.withoutRabbit,
+    withoutClickhouse: input.withoutClickhouse,
     projectName: input.projectName,
   });
 
@@ -72,6 +77,7 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
     mongo: serviceStatus(spec.mongo !== undefined, input.withoutMongo, !!env.mongo),
     redis: serviceStatus(spec.redis !== undefined, input.withoutRedis, !!env.redis),
     rabbit: serviceStatus(spec.rabbit !== undefined, input.withoutRabbit, !!env.rabbit),
+    clickhouse: serviceStatus(spec.clickhouse !== undefined, input.withoutClickhouse, !!env.clickhouse),
   };
 
   // Auto-seed — runs only when (a) caller didn't opt out and (b) manifest
@@ -111,6 +117,9 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
       rabbit: env.rabbit
         ? { containerId: env.rabbit.containerId, image: env.rabbit.image, hostPort: env.rabbit.hostPort }
         : null,
+      clickhouse: env.clickhouse
+        ? { containerId: env.clickhouse.containerId, image: env.clickhouse.image, hostPort: env.clickhouse.hostPort }
+        : null,
     },
     labels: env.labels,
     seed: seedResult
@@ -122,7 +131,7 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
 export const envUpToolDescription = {
   name: 'env.up',
   description:
-    "Provision a fresh isolated environment for a project using Testcontainers. Pass { projectName, projectRoot, seed?: 'auto'|'skip' }; the daemon looks up the manifest written by env.init to learn which services to run and which images / host ports to use. ONLY THE DECLARED SERVICES ARE STARTED: mongo, redis and rabbit are each spawned only when env.init declared them, so a project that uses just one — or none — of these data services gets exactly that. The response includes a `services` field reporting, per backend, whether it was spawned or skipped (e.g. 'not declared in manifest'). Use withoutMongo/withoutRedis/withoutRabbit for a one-off skip of a declared service. When the manifest declares seed paths (seed.json / seed.scripts) and seed='auto' (default), env.up applies them automatically after the containers are ready. Pass seed='skip' to opt out. Returns envId + resolved URLs + `services` + a `seed` field. Sets this env as 'active' so subsequent tool calls default to it.",
+    "Provision a fresh isolated environment for a project using Testcontainers. Pass { projectName, projectRoot, seed?: 'auto'|'skip' }; the daemon looks up the manifest written by env.init to learn which services to run and which images / host ports to use. ONLY THE DECLARED SERVICES ARE STARTED: mongo, redis, rabbit and clickhouse are each spawned only when env.init declared them, so a project that uses just one — or none — of these data services gets exactly that. The response includes a `services` field reporting, per backend, whether it was spawned or skipped (e.g. 'not declared in manifest'). Use withoutMongo/withoutRedis/withoutRabbit/withoutClickhouse for a one-off skip of a declared service. When the manifest declares seed paths (seed.json / seed.scripts) and seed='auto' (default), env.up applies them automatically after the containers are ready. Pass seed='skip' to opt out. Returns envId + resolved URLs (including clickhouseUrl when declared) + `services` + a `seed` field. Sets this env as 'active' so subsequent tool calls default to it.",
   inputSchema: EnvUpInput,
 };
 
@@ -150,6 +159,7 @@ export async function runEnvList(input: z.infer<typeof EnvListInput>, ctx: ToolC
         mongo: e.mongo?.image ?? null,
         redis: e.redis?.image ?? null,
         rabbit: e.rabbit?.image ?? null,
+        clickhouse: e.clickhouse?.image ?? null,
       },
     })),
   };
@@ -167,7 +177,7 @@ export const envListToolDescription = {
 export const EnvStatusInput = z.object({ envId: z.string() });
 
 export async function runEnvStatus(input: z.infer<typeof EnvStatusInput>, ctx: ToolContext) {
-  const { env, mongoReachable, redisReachable, rabbitReachable } = await envStatus(input.envId, ctx.registry);
+  const { env, mongoReachable, redisReachable, rabbitReachable, clickhouseReachable } = await envStatus(input.envId, ctx.registry);
   return {
     envId: env.envId,
     projectName: env.labels?.['easy-env.project'] ?? null,
@@ -175,11 +185,12 @@ export async function runEnvStatus(input: z.infer<typeof EnvStatusInput>, ctx: T
     status: env.status,
     pullingImage: env.pullingImage ?? null,
     resolved: env.resolved,
-    health: { mongoReachable, redisReachable, rabbitReachable },
+    health: { mongoReachable, redisReachable, rabbitReachable, clickhouseReachable },
     containers: {
       mongo: env.mongo ?? null,
       redis: env.redis ?? null,
       rabbit: env.rabbit ?? null,
+      clickhouse: env.clickhouse ?? null,
     },
     labels: env.labels,
     error: env.error,
@@ -189,7 +200,7 @@ export async function runEnvStatus(input: z.infer<typeof EnvStatusInput>, ctx: T
 export const envStatusToolDescription = {
   name: 'env.status',
   description:
-    'Inspect one specific environment: lifecycle status, resolved URLs, live health probe results for Mongo, Redis and Rabbit (rabbit uses a TCP probe — true means something is listening on 5672, not a full AMQP handshake).',
+    'Inspect one specific environment: lifecycle status, resolved URLs, live health probe results for Mongo, Redis, Rabbit and ClickHouse (rabbit uses a TCP probe — true means something is listening on 5672, not a full AMQP handshake; clickhouse hits HTTP /ping).',
   inputSchema: EnvStatusInput,
 };
 

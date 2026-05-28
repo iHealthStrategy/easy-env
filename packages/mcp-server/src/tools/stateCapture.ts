@@ -33,12 +33,17 @@ export async function runStateCapture(input: StateCaptureInput, ctx: ToolContext
   for (const [name, docs] of Object.entries(snap.mongo)) {
     mongoCollections[name] = docs.length;
   }
+  const clickhouseTables: Record<string, number> = {};
+  for (const [name, table] of Object.entries(snap.clickhouse ?? {})) {
+    clickhouseTables[name] = table.rows.length;
+  }
   return {
     snapshotId: snap.snapshotId,
     takenAt: snap.takenAt,
     summary: {
       mongoCollections,
       redisKeys: Object.keys(snap.redis).length,
+      clickhouseTables,
     },
     resolvedBackends: resolved,
   };
@@ -47,6 +52,6 @@ export async function runStateCapture(input: StateCaptureInput, ctx: ToolContext
 export const stateCaptureToolDescription = {
   name: 'state.capture',
   description:
-    "Snapshot the current state across configured backends (Mongo collections, Redis keys). Returns a stable snapshotId you can later pass to diff.compare. Backends are resolved in this order: explicit `backends` arg > `envId` (or the active managed env) > built-in fallbacks.",
+    "Snapshot the current state across configured backends (Mongo collections, Redis keys, ClickHouse tables). For ClickHouse, pass spec.clickhouse.tables as [{ name, database?, orderBy? }]; orderBy enables per-row diffing (added/removed/modified) — omit it for append-only logs (added/removed only, no modified). Returns a stable snapshotId you can later pass to diff.compare. Backends are resolved in this order: explicit `backends` arg > `envId` (or the active managed env) > built-in fallbacks.",
   inputSchema: StateCaptureInput,
 };

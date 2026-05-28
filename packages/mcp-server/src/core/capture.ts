@@ -1,7 +1,13 @@
 import { MongoClient } from 'mongodb';
 import Redis from 'ioredis';
-import type { CaptureSpec, SnapshotArtifact } from '../schemas/capture.js';
+import type {
+  CaptureSpec,
+  ClickhouseCaptureSpec,
+  ClickhouseTableSnapshot,
+  SnapshotArtifact,
+} from '../schemas/capture.js';
 import { newId, nowIso } from './ids.js';
+import { clickhouseQueryRows, escapeClickhouseIdent } from './clickhouse.js';
 
 export interface CaptureContext {
   mongoUrl: string;
@@ -9,6 +15,8 @@ export interface CaptureContext {
   // captureState will refuse to capture mongo collections without one.
   dbName?: string;
   redisUrl: string;
+  clickhouseUrl?: string;
+  clickhouseDbName?: string;
 }
 
 const DEFAULT_CTX: CaptureContext = {
@@ -70,6 +78,32 @@ async function captureRedis(
   }
 }
 
+async function captureClickhouse(
+  spec: ClickhouseCaptureSpec,
+  ctx: CaptureContext,
+): Promise<Record<string, ClickhouseTableSnapshot>> {
+  if (spec.tables.length === 0) return {};
+  if (!ctx.clickhouseUrl) {
+    throw new Error(
+      'captureState: clickhouse tables requested but no clickhouseUrl supplied. Pass `backends.clickhouseUrl` explicitly, or run env.up with backends.clickhouse declared.',
+    );
+  }
+  const out: Record<string, ClickhouseTableSnapshot> = {};
+  for (const t of spec.tables) {
+    const database = t.database ?? ctx.clickhouseDbName ?? 'default';
+    const orderBy = t.orderBy ?? null;
+    // Use FORMAT JSONEachRow so each line is a complete JSON object — same
+    // shape we use for seed insertion, which makes the round-trip cheap to
+    // verify in tests. `ORDER BY tuple()` is ClickHouse for "no ordering";
+    // when an orderBy column was given, sort by it so snapshots are stable.
+    const sortClause = orderBy ? `ORDER BY ${escapeClickhouseIdent(orderBy)}` : '';
+    const sql = `SELECT * FROM ${escapeClickhouseIdent(database)}.${escapeClickhouseIdent(t.name)} ${sortClause} FORMAT JSONEachRow`;
+    const rows = await clickhouseQueryRows(ctx.clickhouseUrl, sql);
+    out[`${database}.${t.name}`] = { orderBy, rows };
+  }
+  return out;
+}
+
 export async function captureState(
   spec: CaptureSpec,
   ctxOverride: Partial<CaptureContext> = {},
@@ -79,10 +113,12 @@ export async function captureState(
     ? await captureMongo(spec.mongo.collections, ctx)
     : {};
   const redis = spec.redis ? await captureRedis(spec.redis.keyPatterns, ctx) : {};
+  const clickhouse = spec.clickhouse ? await captureClickhouse(spec.clickhouse, ctx) : {};
   return {
     snapshotId: newId('snap'),
     takenAt: nowIso(),
     mongo,
     redis,
+    clickhouse,
   };
 }

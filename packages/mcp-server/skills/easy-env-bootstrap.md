@@ -3,8 +3,8 @@ name: easy-env-bootstrap
 description: Use the easy-env MCP server to provision a project's runtime
   environment. YOU (the AI) read the project, decide which env vars it
   needs, and submit them via vars.declare; easy-env owns the data-service
-  containers (mongo/redis/rabbit) the project DECLARES — each is opt-in, so
-  a project only runs the ones it actually uses. Trigger when
+  containers (mongo/redis/rabbit/clickhouse) the project DECLARES — each is
+  opt-in, so a project only runs the ones it actually uses. Trigger when
   the user says "用 easy-env 跑起这个项目", "用 easy-env 配好这个项目的环境",
   "set up this project with easy-env", "initialize easy-env for this
   project", "let easy-env manage this app's vars".
@@ -21,15 +21,16 @@ sessions) can run it reproducibly.
 - Read the project — `easy-env.json`, source code, docker-compose, .env,
   Dockerfile, k8s manifests, README — whatever applies.
 - Decide **which** data services the project actually uses (mongo? redis?
-  rabbit? maybe none), their images and host ports, and what environment
-  variables it consumes.
+  rabbit? clickhouse? maybe none), their images and host ports, and what
+  environment variables it consumes.
 - Push the resolved data to the easy-env daemon via MCP tools.
 
-**Each backend is opt-in.** env.up spawns mongo / redis / rabbit only when
-you declared it via env.init. Declare just what the project uses: a
-redis-only project gets only redis; a pure compute service that talks to no
-local data store gets a bare env with no containers. Don't declare a service
-"just in case" — it would spin up a container the project never connects to.
+**Each backend is opt-in.** env.up spawns mongo / redis / rabbit / clickhouse
+only when you declared it via env.init. Declare just what the project uses:
+a redis-only project gets only redis; a pure compute service that talks to
+no local data store gets a bare env with no containers. Don't declare a
+service "just in case" — it would spin up a container the project never
+connects to.
 
 **Daemon side (easy-env)**:
 - Pure persistence + container lifecycle. **The daemon NEVER reads
@@ -125,6 +126,12 @@ env.init { redis: {} }
 // mongo + rabbit, no redis
 env.init { mongo: { dbName: "app" }, rabbit: {} }
 
+// clickhouse-only analytics service (single node, no cluster)
+env.init { clickhouse: { dbName: "analytics" } }
+
+// clickhouse with Replicated*/Distributed/ON CLUSTER DDL (see ClickHouse decision below)
+env.init { clickhouse: { dbName: "analytics", cluster: { name: "default" } } }
+
 // pure compute service, no local data stores
 env.init { }            // declares nothing → env.up starts no containers
 ```
@@ -142,6 +149,46 @@ safe default.
 
 **Port choices**: on macOS avoid 7000, 5000, 7001 (Apple ControlCenter).
 Safe defaults that rarely collide: `27818` (mongo), `6480` (redis).
+
+#### ClickHouse: cluster mode is YOUR call
+
+If the project uses ClickHouse, decide **single-node vs cluster mode**
+yourself before calling env.init — the daemon won't infer it. Cluster mode
+boots an embedded Keeper + a synthetic single-node cluster (so
+`Distributed` / `ON CLUSTER` / `cluster()` / `ReplicatedMergeTree` work),
+at the cost of ~10–15s extra startup. Single-node mode skips Keeper and
+boots faster; plain `MergeTree` + `SELECT … FINAL` work either way.
+
+**Decision procedure** — grep the project's DDL / migrations / source for
+these cluster-coupled features. ANY hit → enable cluster:
+
+```
+grep -rEn "Engine\s*=\s*(Replicated|Distributed)|ON CLUSTER|cluster\(|remote\(" \
+  <project-root>/{migrations,sql,db,schema,src} 2>/dev/null
+```
+
+| What you found in the project | What to pass to env.init |
+|---|---|
+| `ReplicatedMergeTree(...)`, `ReplicatedReplacingMergeTree`, any `Replicated*` engine | `clickhouse: { cluster: {} }` |
+| `Engine = Distributed(cluster_name, ...)` | `clickhouse: { cluster: { name: "<cluster_name from DDL>" } }` |
+| `CREATE TABLE … ON CLUSTER my_cluster` | `clickhouse: { cluster: { name: "my_cluster" } }` |
+| `SELECT … FROM cluster('my_cluster', ...)` | `clickhouse: { cluster: { name: "my_cluster" } }` |
+| Only plain `MergeTree` / `ReplacingMergeTree` / `SummingMergeTree`, with or without `FINAL` | `clickhouse: {}` — no cluster needed |
+| ClickHouse not used at all | omit `clickhouse` entirely |
+
+**Cluster name matching matters.** If the project's DDL hardcodes a name
+like `ON CLUSTER analytics_main`, you MUST pass the same name in
+`cluster.name` — otherwise the DDL will fail at runtime with "cluster
+analytics_main not found". When the project uses multiple cluster names,
+that's the rare case where easy-env's single-cluster setup isn't enough;
+report it to the user instead of guessing.
+
+The macros `{shard}` / `{replica}` are exposed for `ReplicatedMergeTree`'s
+zookeeper-path template. Defaults (`01` / `r1`) are fine unless the
+project's path template references something else.
+
+After enabling cluster mode you can template the cluster name into the
+project's variables: `vars.set { name: "CH_CLUSTER", value: "${clickhouse.cluster}" }`.
 
 ### 3. Discover this project's env-var surface — YOU read the project
 

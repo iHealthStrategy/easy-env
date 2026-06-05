@@ -58,6 +58,7 @@ export async function runEnvUp(input: z.infer<typeof EnvUpInput>, ctx: ToolConte
     withoutRabbit: input.withoutRabbit,
     withoutClickhouse: input.withoutClickhouse,
     projectName: input.projectName,
+    projectRoot: input.projectRoot,
   });
 
   // Per-service summary so the AI/user can see what ran and why — especially
@@ -225,7 +226,12 @@ export async function runEnvReset(input: z.infer<typeof EnvResetInput>, ctx: Too
     }
     spec = await loadBackendsSpec(ctx, input.projectName, input.projectRoot);
   }
-  const env = await envReset(input.envId, ctx.registry, input.recreate, spec, input.projectName);
+  // Tear down any live profiler/cursors for this env BEFORE reset. On
+  // recreate the old envId is destroyed (new one minted), so its monitor
+  // would otherwise orphan; on in-place reset the data is dropped, so stale
+  // pre-reset traffic should not keep streaming. Either way, stop cleanly.
+  await ctx.traffic.stopEnv(input.envId);
+  const env = await envReset(input.envId, ctx.registry, input.recreate, spec, input.projectName, input.projectRoot);
   return {
     envId: env.envId,
     status: env.status,
@@ -249,6 +255,10 @@ export const envResetToolDescription = {
 export const EnvDownInput = z.object({ envId: z.string() });
 
 export async function runEnvDown(input: z.infer<typeof EnvDownInput>, ctx: ToolContext) {
+  // Stop the profiler + tailable cursors + close the monitor client and drop
+  // the ring buffer BEFORE the containers go away, so a torn-down env never
+  // leaks a MongoClient/cursor or orphans its buffer.
+  await ctx.traffic.stopEnv(input.envId);
   await envDown(input.envId, ctx.registry);
   return { envId: input.envId, destroyed: true };
 }

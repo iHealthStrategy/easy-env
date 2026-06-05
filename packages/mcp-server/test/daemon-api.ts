@@ -69,11 +69,15 @@ async function main(): Promise<void> {
       // tool listing
       {
         const r = await fetch(`${baseUrl}/api/tools`).then((r) => r.json()) as { tools: Array<{ name: string }> };
-        await expect(r.tools.length === 21, `expected 21 tools, got ${r.tools.length}`);
+        await expect(r.tools.length === 26, `expected 26 tools, got ${r.tools.length}`);
         const names = r.tools.map((t) => t.name);
         await expect(names.includes('vars.declare'), 'vars.declare missing from tool list');
         await expect(!names.includes('vars.init'), 'vars.init should be replaced by vars.declare');
-        console.log('  ✓ GET /api/tools (21 tools, vars.declare present)');
+        // traffic monitoring tools (monitor.set + traffic.*)
+        for (const t of ['monitor.set', 'traffic.targets', 'traffic.enable', 'traffic.disable', 'traffic.tail']) {
+          await expect(names.includes(t), `${t} missing from tool list`);
+        }
+        console.log('  ✓ GET /api/tools (26 tools, vars.declare + traffic.* present)');
       }
 
       // env.list resource endpoint (no envs yet)

@@ -90,6 +90,23 @@ export const BackendsManifest = z.object({
   clickhouse: ClickhouseBackendManifest.optional(),
 });
 
+// Per-project traffic-monitoring config. v1 covers Mongo only: which
+// databases (inside the env's single owned mongo instance) the developer
+// has SELECTED to watch via the profiler. This is durable PROJECT intent
+// ("I always want to watch db X, Y") — it is shared across all of the
+// project's concurrent envs. Whether the profiler is actually RUNNING is a
+// per-env runtime fact (TrafficMonitor), deliberately NOT stored here.
+//
+// `databases` is the user's selection; an empty array means "watch nothing".
+// New fields default so manifests written before this feature parse fine.
+export const MongoMonitorManifest = z.object({
+  databases: z.array(z.string().min(1)).default([]),
+});
+
+export const MonitorManifest = z.object({
+  mongo: MongoMonitorManifest.default({}),
+});
+
 export const ProjectManifest = z.object({
   name: ProjectName,
   projectRoot: z.string().min(1),
@@ -99,9 +116,14 @@ export const ProjectManifest = z.object({
   // The daemon reads these files during state.seed; it never scans
   // projectRoot for other content.
   seed: SeedConfig.default({ json: [], scripts: [] }),
+  // Traffic-monitoring selection (Mongo db names). Defaults so existing
+  // manifests parse without migration.
+  monitor: MonitorManifest.default({}),
 });
 
 export type ProjectManifest = z.infer<typeof ProjectManifest>;
+export type MonitorManifest = z.infer<typeof MonitorManifest>;
+export type MongoMonitorManifest = z.infer<typeof MongoMonitorManifest>;
 export type MongoBackendManifest = z.infer<typeof MongoBackendManifest>;
 export type RedisBackendManifest = z.infer<typeof RedisBackendManifest>;
 export type RabbitBackendManifest = z.infer<typeof RabbitBackendManifest>;

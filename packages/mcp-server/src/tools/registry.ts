@@ -30,6 +30,13 @@ import { runVarsDeclare, VarsDeclareInput, varsDeclareToolDescription } from './
 import { runEnvInit, EnvInitInput, envInitToolDescription } from './envInit.js';
 import { runProjectDelete, ProjectDeleteInput, projectDeleteToolDescription } from './projectDelete.js';
 import { runStateSeed, StateSeedInput, stateSeedToolDescription } from './stateSeed.js';
+import { runMonitorSet, MonitorSetInput, monitorSetToolDescription } from './monitor.js';
+import {
+  runTrafficTargets, TrafficTargetsInput, trafficTargetsToolDescription,
+  runTrafficEnable, TrafficEnableInput, trafficEnableToolDescription,
+  runTrafficDisable, TrafficDisableInput, trafficDisableToolDescription,
+  runTrafficTail, TrafficTailInput, trafficTailToolDescription,
+} from './traffic.js';
 
 export interface ToolEntry {
   name: string;
@@ -60,6 +67,13 @@ export const TOOL_REGISTRY: ReadonlyArray<ToolEntry> = [
   { name: varsUnsetToolDescription.name, description: varsUnsetToolDescription.description, inputSchema: VarsUnsetInput, run: (a, c) => runVarsUnset(VarsUnsetInput.parse(a), c) },
   { name: varsDeclareToolDescription.name, description: varsDeclareToolDescription.description, inputSchema: VarsDeclareInput, run: (a, c) => runVarsDeclare(VarsDeclareInput.parse(a), c) },
   { name: projectDeleteToolDescription.name, description: projectDeleteToolDescription.description, inputSchema: ProjectDeleteInput, run: (a, c) => runProjectDelete(ProjectDeleteInput.parse(a), c) },
+
+  // traffic monitoring (env-scoped capture + per-project selection)
+  { name: monitorSetToolDescription.name, description: monitorSetToolDescription.description, inputSchema: MonitorSetInput, run: (a, c) => runMonitorSet(MonitorSetInput.parse(a), c) },
+  { name: trafficTargetsToolDescription.name, description: trafficTargetsToolDescription.description, inputSchema: TrafficTargetsInput, run: (a, c) => runTrafficTargets(TrafficTargetsInput.parse(a), c) },
+  { name: trafficEnableToolDescription.name, description: trafficEnableToolDescription.description, inputSchema: TrafficEnableInput, run: (a, c) => runTrafficEnable(TrafficEnableInput.parse(a), c) },
+  { name: trafficDisableToolDescription.name, description: trafficDisableToolDescription.description, inputSchema: TrafficDisableInput, run: (a, c) => runTrafficDisable(TrafficDisableInput.parse(a), c) },
+  { name: trafficTailToolDescription.name, description: trafficTailToolDescription.description, inputSchema: TrafficTailInput, run: (a, c) => runTrafficTail(TrafficTailInput.parse(a), c) },
 
   // state + scenario
   { name: stateSeedToolDescription.name, description: stateSeedToolDescription.description, inputSchema: StateSeedInput, run: (a, c) => runStateSeed(StateSeedInput.parse(a), c) },

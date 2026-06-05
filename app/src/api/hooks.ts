@@ -8,7 +8,7 @@
 // (tools registry, immutable snapshots/diffs) don't poll.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { VarValue, VarsDeclareItem } from './types';
+import type { VarValue, VarsDeclareItem, MonitorConfigResponse } from './types';
 
 // Default cadence for "live state" queries. Cheap (one local HTTP roundtrip
 // per refresh) and frequent enough that env.up / vars.set / project.delete
@@ -16,6 +16,9 @@ import type { VarValue, VarsDeclareItem } from './types';
 const LIVE_REFETCH_MS = 2000;
 const ACTIVITY_REFETCH_MS = 3000;
 const HEALTH_REFETCH_MS = 5000;
+// Traffic is the most "live" view — poll a touch faster so a captured query
+// shows up promptly while the user is watching.
+const TRAFFIC_REFETCH_MS = 1500;
 
 export const queryKeys = {
   health: ['health'] as const,
@@ -31,6 +34,8 @@ export const queryKeys = {
   // The vars-cache key is the project slug, NOT the human projectName,
   // so two worktrees with the same projectName don't share cache entries.
   vars: (projectKey: string) => ['vars', projectKey] as const,
+  monitor: (id: string) => ['envs', id, 'monitor'] as const,
+  traffic: (id: string) => ['envs', id, 'traffic'] as const,
 };
 
 export const useHealth = (opts?: { refetchInterval?: number }) =>
@@ -71,6 +76,56 @@ export const useEnv = (id: string) =>
     queryKey: queryKeys.env(id),
     queryFn: () => api.getEnv(id),
     refetchInterval: LIVE_REFETCH_MS,
+  });
+
+// ── traffic monitoring ──────────────────────────────────────────────────
+// Monitor config (available dbs + selection + running state) is live state
+// (enable/disable can happen from MCP or another window), so it polls.
+export const useMonitorConfig = (envId: string) =>
+  useQuery({
+    queryKey: queryKeys.monitor(envId),
+    queryFn: () => api.getMonitorConfig(envId),
+    refetchInterval: LIVE_REFETCH_MS,
+  });
+
+// Persist db selection and/or toggle capture. Optimistically updates the
+// cached monitor config so the toggle/checkboxes reflect the intended state
+// immediately and don't bounce against the 2s background poll; rolls back on
+// error; reconciles with the server on settle.
+export function useSetMonitorConfig(envId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: { databases?: string[]; enabled?: boolean }) =>
+      api.setMonitorConfig(envId, patch),
+    onMutate: async (patch) => {
+      await qc.cancelQueries({ queryKey: queryKeys.monitor(envId) });
+      const prev = qc.getQueryData<MonitorConfigResponse>(queryKeys.monitor(envId));
+      if (prev) {
+        qc.setQueryData<MonitorConfigResponse>(queryKeys.monitor(envId), {
+          ...prev,
+          ...(patch.databases !== undefined ? { selected: patch.databases } : {}),
+          ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+        });
+      }
+      return { prev };
+    },
+    onError: (_e, _patch, ctx) => {
+      if (ctx?.prev) qc.setQueryData(queryKeys.monitor(envId), ctx.prev);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.monitor(envId) });
+      qc.invalidateQueries({ queryKey: queryKeys.traffic(envId) });
+    },
+  });
+}
+
+export const useTraffic = (envId: string, enabled: boolean) =>
+  useQuery({
+    queryKey: queryKeys.traffic(envId),
+    queryFn: () => api.getTraffic(envId),
+    // Only poll the stream while capture is on — no point hammering it when
+    // the profiler is off.
+    refetchInterval: enabled ? TRAFFIC_REFETCH_MS : false,
   });
 
 // Snapshots / diffs are immutable artifacts once written; the LIST can

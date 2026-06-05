@@ -80,6 +80,9 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     console.log(`[easy-env-daemon] received ${signal}, shutting down`);
     server.close();
+    // Stop all traffic monitors first (closes mongo clients + poller loops)
+    // so we don't drain containers out from under live profiler connections.
+    await ctx.traffic.stopAll().catch(() => undefined);
     await drainRegistry(ctx.registry).catch((e) => {
       console.error('[easy-env-daemon] drain failed (non-fatal):', e instanceof Error ? e.message : e);
     });

@@ -75,6 +75,13 @@ const PROJECT_AGNOSTIC = new Set([
   'db.insert',
   'db.update',
   'db.delete',
+  // traffic.* are env-scoped (keyed by envId), so they never need project
+  // identity injected. monitor.set IS project-scoped and is intentionally
+  // absent here so it gets { projectName, projectRoot } auto-injected.
+  'traffic.targets',
+  'traffic.enable',
+  'traffic.disable',
+  'traffic.tail',
 ]);
 
 function injectIdentity(toolName: string, args: Record<string, unknown>): Record<string, unknown> {

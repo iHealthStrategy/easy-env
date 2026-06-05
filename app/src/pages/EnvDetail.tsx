@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useEnv, useEnvDown } from '../api/hooks';
+import { useEnv, useEnvDown, useMonitorConfig, useSetMonitorConfig, useTraffic } from '../api/hooks';
 import { QueryState } from '../components/QueryState';
 import { envStatusLabel, fmtTime } from '../components/format';
 import type { ContainerHandle } from '../api/types';
@@ -123,6 +123,8 @@ export function EnvDetail() {
               </dl>
             </div>
 
+            {env.containers.mongo && env.status === 'ready' && <TrafficPanel envId={envId} />}
+
             <ContainerCard title="Mongo" handle={env.containers.mongo} />
             <ContainerCard title="Redis" handle={env.containers.redis} />
             <ContainerCard title="Rabbit" handle={env.containers.rabbit} />
@@ -177,6 +179,159 @@ function DestroyEnvButton({ envId }: { envId: string }) {
         取消
       </button>
     </span>
+  );
+}
+
+// MongoDB traffic monitoring. Two cards: a database picker + capture toggle,
+// and a live table of captured operations. Only rendered for ready envs that
+// have a Mongo backend.
+function TrafficPanel({ envId }: { envId: string }) {
+  const cfg = useMonitorConfig(envId);
+  const setCfg = useSetMonitorConfig(envId);
+  const enabled = cfg.data?.enabled ?? false;
+  const traffic = useTraffic(envId, enabled);
+
+  const selected = new Set(cfg.data?.selected ?? []);
+  const available = cfg.data?.available ?? [];
+  // Show available dbs plus any persisted selection that isn't currently
+  // present (db not created yet / dropped) — we keep, never silently drop it.
+  const allDbs = [...new Set([...available, ...selected])].sort();
+  // Can't capture with nothing selected — enabling would be a silent no-op.
+  const canEnable = selected.size > 0;
+
+  // Toggling a db while capture is ON must re-reconcile the running profiler,
+  // not just persist intent — so carry `enabled:true` along (the daemon
+  // persists-then-re-enables in the right order).
+  const toggleDb = (db: string) => {
+    const next = new Set(selected);
+    if (next.has(db)) next.delete(db);
+    else next.add(db);
+    setCfg.mutate({ databases: [...next], ...(enabled ? { enabled: true } : {}) });
+  };
+
+  // Counts + the actually-monitored set come from the traffic snapshot when
+  // available, so the buffered count and the table rows share one source;
+  // fall back to the monitor-config snapshot before the first traffic fetch.
+  const st = traffic.data?.status;
+  const monitoring = st?.databases ?? cfg.data?.monitoring ?? [];
+  const buffered = st?.buffered ?? cfg.data?.buffered ?? 0;
+  const dropped = st?.dropped ?? cfg.data?.dropped ?? 0;
+
+  return (
+    <>
+      <div className="card">
+        <h3>流量监听 (MongoDB)</h3>
+        <div className="toggle-row">
+          <div>
+            <div className="toggle-label">启用监听</div>
+            <div className="toggle-desc">
+              对选中的数据库逐库开启 Profiler(level 2),捕获每一次操作。会增加数据库负载,适合短时段调试,用完请关闭。
+              {!enabled && !canEnable && <strong>(先在下方勾选要监听的数据库)</strong>}
+            </div>
+          </div>
+          <label className={`switch ${enabled ? 'on' : ''} ${!enabled && !canEnable ? 'disabled' : ''}`}>
+            <input
+              type="checkbox"
+              checked={enabled}
+              disabled={setCfg.isPending || cfg.isPending || (!enabled && !canEnable)}
+              onChange={() => setCfg.mutate({ enabled: !enabled })}
+            />
+            <span className="slider" />
+          </label>
+        </div>
+
+        <QueryState query={cfg}>
+          {() =>
+            allDbs.length === 0 ? (
+              <div className="empty" style={{ padding: 16 }}>
+                未发现可监听的用户数据库(应用尚未创建任何库)。
+              </div>
+            ) : (
+              <>
+                <p className="meta" style={{ margin: '4px 0 8px' }}>选择要监听的数据库:</p>
+                {allDbs.map((db) => {
+                  const unavailable = !available.includes(db);
+                  return (
+                    <label key={db} className="radio-row" style={{ cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(db)}
+                        disabled={setCfg.isPending}
+                        onChange={() => toggleDb(db)}
+                      />
+                      <span>
+                        <code>{db}</code>
+                        {unavailable && <span className="meta"> (未发现,已保留选择)</span>}
+                      </span>
+                    </label>
+                  );
+                })}
+              </>
+            )
+          }
+        </QueryState>
+
+        {cfg.data && (
+          <p className="meta" style={{ marginTop: 10 }}>
+            {enabled
+              ? `正在监听:${monitoring.join('、') || '—'} · 已缓冲 ${buffered} 条` +
+                (dropped > 0 ? `(已丢弃最旧 ${dropped} 条)` : '')
+              : buffered > 0
+                ? `监听已暂停 · 仍保留 ${buffered} 条历史(销毁环境前可继续查看)。`
+                : '监听已关闭。'}
+          </p>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>实时流量</h3>
+        <QueryState query={traffic}>
+          {(t) =>
+            t.entries.length === 0 ? (
+              <div className="empty" style={{ padding: 16 }}>
+                {enabled
+                  ? '尚未捕获到操作(在应用里触发一些读写后会出现在这里)。'
+                  : '启用监听后,这里显示捕获到的 MongoDB 操作。'}
+              </div>
+            ) : (
+              <>
+                {!enabled && (
+                  <p className="meta" style={{ margin: '0 0 8px' }}>
+                    监听已暂停 — 显示最近捕获的 {t.entries.length} 条。
+                  </p>
+                )}
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>op</th>
+                      <th>集合</th>
+                      <th>耗时</th>
+                      <th>返回</th>
+                      <th>命令</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {t.entries.map((e) => (
+                      <tr key={`${e.db}:${e.id}`}>
+                        <td className="meta">{fmtTime(e.ts)}</td>
+                        <td><code>{e.op}</code></td>
+                        <td><code>{e.db === e.collection ? e.ns : `${e.db}.${e.collection}`}</code></td>
+                        <td>{e.durationMs}ms</td>
+                        <td>{e.nreturned ?? '—'}</td>
+                        <td>
+                          <code style={{ wordBreak: 'break-all', fontSize: '0.85em' }}>{e.command}</code>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )
+          }
+        </QueryState>
+      </div>
+    </>
   );
 }
 

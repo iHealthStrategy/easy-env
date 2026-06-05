@@ -146,6 +146,44 @@ export interface ApiError {
   error: { code: string; message: string; details?: unknown };
 }
 
+// ── traffic monitoring ───────────────────────────────────────────────────
+// Returned by GET/PUT /api/envs/:envId/monitor (traffic.targets).
+export interface MonitorConfigResponse {
+  envId: string;
+  /** User databases on the env's mongo that can be watched (system dbs excluded). */
+  available: string[];
+  /** The project's persisted selection of databases to watch. */
+  selected: string[];
+  /** Whether the profiler is currently running for THIS env. */
+  enabled: boolean;
+  /** Databases currently being profiled for this env. */
+  monitoring: string[];
+  buffered: number;
+  dropped: number;
+}
+
+export interface TrafficEntry {
+  id: number;
+  ts: string;
+  db: string;
+  ns: string;
+  collection: string;
+  op: string;
+  durationMs: number;
+  nreturned?: number;
+  planSummary?: string;
+  command: string;
+  appName?: string;
+  client?: string;
+}
+
+// Returned by GET /api/envs/:envId/traffic (traffic.tail).
+export interface TrafficResponse {
+  envId: string;
+  status: { enabled: boolean; databases: string[]; buffered: number; dropped: number };
+  entries: TrafficEntry[];
+}
+
 // ── projects ───────────────────────────────────────────────────────────────
 export interface ProjectSummary {
   /** Slug used as the on-disk + URL key (`<name>__<rootHash>`). Always

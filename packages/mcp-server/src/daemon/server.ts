@@ -5,6 +5,7 @@ import { ZodError } from 'zod';
 
 import type { ToolContext } from '../core/context.js';
 import { findTool, TOOL_REGISTRY } from '../tools/registry.js';
+import { projectIdentityFromEnv } from '../core/managedEnv.js';
 import { ActivityLog } from './activity.js';
 
 const VERSION = '0.1.0-alpha';
@@ -151,6 +152,64 @@ export function buildApp(ctx: ToolContext, startedAt: number): Hono {
   app.get('/api/envs/:envId', async (c) => {
     try {
       return c.json(await invokeTool('env.status', { envId: c.req.param('envId') }));
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  // ── traffic monitoring (Web UI) ───────────────────────────────────────────
+  // GET  /monitor → discover targets + selection + running state
+  // PUT  /monitor → persist selection (databases) and/or toggle capture (enabled)
+  // GET  /traffic → recent captured operations
+  //
+  // The PUT addresses the env by :envId (discovery + capture are env-level),
+  // but persisting the selection writes to the PROJECT manifest. We resolve
+  // env → (projectName, projectRoot) from the env's labels — both are recorded
+  // at env.up, so same-named worktrees resolve to the right slug without
+  // resolveSlugFromName (which throws on an ambiguous bare name).
+  app.get('/api/envs/:envId/monitor', async (c) => {
+    try {
+      return c.json(await invokeTool('traffic.targets', { envId: c.req.param('envId') }));
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  app.put('/api/envs/:envId/monitor', async (c) => {
+    const envId = c.req.param('envId');
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as {
+        databases?: string[];
+        enabled?: boolean;
+      };
+      // Persist the selection first (so a following enable picks it up).
+      if (body.databases !== undefined) {
+        const env = await ctx.registry.get(envId);
+        if (!env) return c.json({ error: { code: 'not-found', message: `env not found: ${envId}` } }, 404);
+        const identity = projectIdentityFromEnv(env);
+        if (!identity) {
+          return c.json(
+            { error: { code: 'invalid-input', message: `env ${envId} has no project identity on its labels; cannot persist a monitor selection.` } },
+            400,
+          );
+        }
+        await invokeTool('monitor.set', { ...identity, databases: body.databases });
+      }
+      // Then toggle capture for this specific env.
+      if (body.enabled !== undefined) {
+        await invokeTool(body.enabled ? 'traffic.enable' : 'traffic.disable', { envId });
+      }
+      // Return the fresh combined view.
+      return c.json(await invokeTool('traffic.targets', { envId }));
+    } catch (e) {
+      return handleError(c, e);
+    }
+  });
+
+  app.get('/api/envs/:envId/traffic', async (c) => {
+    try {
+      const limit = Math.min(500, Math.max(1, Number(c.req.query('limit') ?? 100)));
+      return c.json(await invokeTool('traffic.tail', { envId: c.req.param('envId'), limit }));
     } catch (e) {
       return handleError(c, e);
     }

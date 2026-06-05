@@ -21,6 +21,8 @@ import type {
   VarsDeclareItem,
   VarValue,
   ApiError,
+  MonitorConfigResponse,
+  TrafficResponse,
 } from './types';
 
 type DaemonFetchResponse = { status: number; ok: boolean; body: unknown };
@@ -103,6 +105,18 @@ export const api = {
       method: 'POST',
       body: { envId },
     }),
+  // ── traffic monitoring (per-env) ─────────────────────────────────────────
+  getMonitorConfig: (envId: string) =>
+    request<MonitorConfigResponse>(`/api/envs/${encodeURIComponent(envId)}/monitor`),
+  // Persist the watched-db selection and/or toggle capture in one round-trip.
+  setMonitorConfig: (envId: string, patch: { databases?: string[]; enabled?: boolean }) =>
+    request<MonitorConfigResponse>(`/api/envs/${encodeURIComponent(envId)}/monitor`, {
+      method: 'PUT',
+      body: patch,
+    }),
+  getTraffic: (envId: string, limit = 100) =>
+    request<TrafficResponse>(`/api/envs/${encodeURIComponent(envId)}/traffic?limit=${limit}`),
+
   listSnapshots: () => request<SnapshotsListResponse>('/api/snapshots'),
   getSnapshot: (id: string) =>
     request<SnapshotDetailResponse>(`/api/snapshots/${encodeURIComponent(id)}`),

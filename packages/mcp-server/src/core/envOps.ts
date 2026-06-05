@@ -54,13 +54,19 @@ function configHash(spec: BackendsSpec): string {
   return crypto.createHash('sha256').update(stable).digest('hex').slice(0, 16);
 }
 
-function commonLabels(envId: string, projectName?: string): Record<string, string> {
+function commonLabels(envId: string, projectName?: string, projectRoot?: string): Record<string, string> {
   const labels: Record<string, string> = {
     'easy-env.env-id': envId,
     'easy-env.session': String(process.pid),
     'easy-env.created-at': new Date().toISOString(),
   };
   if (projectName) labels['easy-env.project'] = projectName;
+  // projectRoot disambiguates same-named worktrees. Recorded on the env so
+  // daemon routes that only have an envId (e.g. the monitor endpoints) can
+  // resolve back to the exact project manifest slug (slugFor(name, root))
+  // without going through resolveSlugFromName, which throws on a bare name
+  // that matches multiple worktrees.
+  if (projectRoot) labels['easy-env.project-root'] = projectRoot;
   return labels;
 }
 
@@ -77,6 +83,9 @@ export interface UpOptions {
   setActive?: boolean;
   /** Project name to tag on the container labels (for sweeping per-project). */
   projectName?: string;
+  /** Project root, tagged on labels so envId-only daemon routes can resolve
+   *  the exact manifest slug for same-named worktrees. */
+  projectRoot?: string;
 }
 
 export async function envUp(
@@ -85,7 +94,7 @@ export async function envUp(
   opts: UpOptions = {},
 ): Promise<ManagedEnv> {
   const envId = newEnvId();
-  const labels = commonLabels(envId, opts.projectName);
+  const labels = commonLabels(envId, opts.projectName, opts.projectRoot);
   const dbName = spec.mongo?.dbName;
 
   const initial: ManagedEnv = {
@@ -330,6 +339,7 @@ export async function envReset(
   recreate: boolean,
   recreateSpec: BackendsSpec | null,
   projectName?: string,
+  projectRoot?: string,
 ): Promise<ManagedEnv> {
   const env = await registry.get(envId);
   if (!env) throw new Error(`env not found: ${envId}`);
@@ -339,7 +349,7 @@ export async function envReset(
       throw new Error('env.reset with recreate:true requires backends spec (pass projectName so we can read the manifest).');
     }
     await envDown(envId, registry);
-    return envUp(recreateSpec, registry, { setActive: true, projectName });
+    return envUp(recreateSpec, registry, { setActive: true, projectName, projectRoot });
   }
 
   if (env.resolved.mongoUrl && env.resolved.dbName) {
